@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="VKAdminPanel_NC/VKAdminPanel_NC.csproj" Id="2417e5ae-b2ce-4981-acec-553d85e7db0e" />
+  <Project Path="VKBD_nc/VKBD_nc.csproj" Id="a97dbc0f-ece2-4141-959b-9ba982138d9b" />
   <Project Path="VKBot_nordciti/VKBot_nordciti.csproj" />
 </Solution>

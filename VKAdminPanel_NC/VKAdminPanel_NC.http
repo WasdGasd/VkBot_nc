@@ -1,0 +1,6 @@
+@VKAdminPanel_NC_HostAddress = http://localhost:5136
+
+GET {{VKAdminPanel_NC_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
