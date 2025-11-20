@@ -1,8 +1,7 @@
 ﻿using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
-using VKBot.Web.Models;
-
+using VKBD_nc.Models;
 namespace VKB_WA.Services
 { 
     public class ErrorLogger
