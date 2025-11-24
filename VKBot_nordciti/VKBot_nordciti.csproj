@@ -1,20 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<GenerateDocumentationFile>True</GenerateDocumentationFile>
-		<DocumentationFile></DocumentationFile>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\VKBD_nc\VKBD_nc.csproj" />
-		<ProjectReference Include="..\VKBD_nc\VKBD_nc.csproj" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 	</ItemGroup>
+
 </Project>

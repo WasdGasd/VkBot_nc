@@ -1,21 +1,27 @@
 using Microsoft.EntityFrameworkCore;
-using VKBD_nc.Models;
-using VKBD_nc.Data; // Добавьте эту папку и файл
+using Data;
+using Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Читаем строку подключения для SQLite из appsettings.json
+var connectionString = builder.Configuration.GetConnectionString("Default");
 
+// Регистрируем DbContext с SQLite
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(connectionString));
+
+// Регистрируем другие сервисы
+builder.Services.AddScoped<DbService>();
+
+// Контроллеры и Swagger
 builder.Services.AddControllers();
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Конфигурация HTTP пайплайна
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -23,9 +29,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();
