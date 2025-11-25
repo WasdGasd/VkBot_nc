@@ -1,6 +1,6 @@
 using System;
 
-namespace Models
+namespace VKBD_nc.models
 {
     public class CommandLog
     {

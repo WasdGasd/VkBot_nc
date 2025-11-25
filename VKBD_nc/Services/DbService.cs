@@ -1,14 +1,14 @@
-﻿using Data;
-using Models;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using VKBD_nc.Data;
+using VKBD_nc.models;
 
-namespace Services
+namespace VKBD_nc.Services
 {
     public class DbService
     {
-        private readonly AppDbContext _db;
+        private readonly BotDbContext _db;
 
-        public DbService(AppDbContext db)
+        public DbService(BotDbContext db)
         {
             _db = db;
         }

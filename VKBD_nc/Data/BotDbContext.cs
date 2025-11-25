@@ -1,14 +1,14 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using Models;
+using VKBD_nc.models;
 
-namespace Data
+namespace VKBD_nc.Data
 {
-    public class AppDbContext : DbContext
+    public class BotDbContext : DbContext
     {
         public DbSet<CommandLog> CommandLogs { get; set; }
         public DbSet<UserSession> UserSessions { get; set; }
 
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        public BotDbContext(DbContextOptions<BotDbContext> options) : base(options)
         {
         }
     }

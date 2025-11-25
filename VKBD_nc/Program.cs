@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Data;
-using Services;
+using VKBD_nc.Data;
+using VKBD_nc.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,7 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("Default");
 
 // Регистрируем DbContext с SQLite
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContext<BotDbContext>(options =>
     options.UseSqlite(connectionString));
 
 // Регистрируем другие сервисы
