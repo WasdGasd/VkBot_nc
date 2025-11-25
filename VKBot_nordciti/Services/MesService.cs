@@ -5,6 +5,7 @@ using VK;
 using VK.Models;
 using VKBD_nc.Data;
 using VKBD_nc.models;
+using BotServices;
 
 namespace BotServices
 {
@@ -66,23 +67,7 @@ namespace BotServices
 
                     await _db.SaveChangesAsync();
 
-                    // ОСОБАЯ ОБРАБОТКА ДЛЯ ЗАГРУЖЕННОСТИ - ВЫЗОВ API
-                    if (dbCommand.Name.Contains("📊") || dbCommand.Name.ToLower().Contains("загруженность"))
-                    {
-                        var loadInfo = await GetParkLoadAsync();
-                        await _vk.SendMessageAsync(message.PeerId, loadInfo, _kb.BackToMain());
-                    }
-                    else if (!string.IsNullOrWhiteSpace(dbCommand.KeyboardJson))
-                    {
-                        await _vk.SendMessageAsync(message.PeerId, dbCommand.Response, dbCommand.KeyboardJson);
-                    }
-                    else
-                    {
-                        await _vk.SendMessageAsync(message.PeerId, dbCommand.Response);
-                    }
 
-                    _state.SetState(userId, ConversationState.Idle);
-                    return;
                 }
 
                 // ======================================================
@@ -321,7 +306,7 @@ namespace BotServices
                 if (!tariffsResponse.IsSuccessStatusCode)
                 {
                     _logger.Warn($"Не удалось получить тарифы. Статус: {tariffsResponse.StatusCode}");
-                    return ("⚠️ Ошибка при загрузке тарифов", _kb.BackKeyboard());
+                    return ("⚠️ Ошибка при загрузке тарифов", _kb.BackToMain());
                 }
 
                 var tariffsJson = await tariffsResponse.Content.ReadAsStringAsync();
@@ -331,7 +316,7 @@ namespace BotServices
 
                 if (!tariffsData.TryGetProperty("result", out var tariffsArray) || tariffsArray.GetArrayLength() == 0)
                 {
-                    return ("😔 На выбранную дату нет доступных тарифов", _kb.BackKeyboard());
+                    return ("😔 На выбранную дату нет доступных тарифов", _kb.BackToMain());
                 }
 
                 string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
@@ -428,7 +413,7 @@ namespace BotServices
             catch (Exception ex)
             {
                 _logger.Error(ex, $"Ошибка получения тарифов для даты {date}, сеанс {sessionTime}, категория {category}");
-                return ("❌ Ошибка при получении тарифов. Попробуйте позже 😔", _kb.BackKeyboard());
+                return ("❌ Ошибка при получении тарифов. Попробуйте позже 😔", _kb.BackToMain());
             }
         }
 

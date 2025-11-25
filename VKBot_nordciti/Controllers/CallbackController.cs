@@ -18,9 +18,9 @@ public class CallbackController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Callback([FromBody] VkCallbackRequest request)
     {
-        //  if (request.Type=="confirmation" && request.Group_Id==233846417) {
-        //  return Ok("a45d3f0a");
-        //  }
+         if (request.Type=="confirmation" && request.GroupId==233846417) {
+          return Ok(" 0f71d26f");
+          }
 
         // Проверка секрета
         if (!string.IsNullOrEmpty(_config["VkSettings:SecretKey"]) && request.Secret != _config["VkSettings:SecretKey"])
