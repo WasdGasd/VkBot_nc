@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace VKBD_nc.Migrations
 {
     /// <inheritdoc />
-    public partial class nitialreate : Migration
+    public partial class Nitialreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

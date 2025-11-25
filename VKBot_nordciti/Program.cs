@@ -1,9 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Services;
 using VK;
 using VKBD_nc.Data;
-using VKBD_nc.Services;
+using BotServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,7 +50,7 @@ builder.Services.AddSingleton<KeyboardProvider>();
 builder.Services.AddSingleton<ConversationStateService>();
 builder.Services.AddSingleton<FileLogger>();
 builder.Services.AddScoped<CommandService>();
-builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddScoped<IMessageService, MesService>();
 
 
 var app = builder.Build();

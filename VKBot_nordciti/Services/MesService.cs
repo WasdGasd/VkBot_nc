@@ -1,14 +1,14 @@
-using Data;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Models;
-using Services;
 using System.Text.Json;
 using VK;
 using VK.Models;
+using VKBD_nc.Data;
+using VKBD_nc.models;
 
-namespace Services
+namespace BotServices
 {
-    public class MessageService : IMessageService
+    public class MesService : IMessageService
     {
         private readonly VkApiManager _vk;
         private readonly KeyboardProvider _kb;
@@ -21,7 +21,7 @@ namespace Services
         private readonly JsonSerializerOptions _jsonOptions =
             new() { PropertyNameCaseInsensitive = true };
 
-        public MessageService(
+        public MesService(
             VkApiManager vkApi,
             KeyboardProvider kb,
             ConversationStateService state,

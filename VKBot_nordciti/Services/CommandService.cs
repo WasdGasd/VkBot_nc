@@ -3,7 +3,7 @@ using Models;
 using VKBD_nc.Data;
 using VKBD_nc.models;
 
-namespace Services
+namespace BotServices
 {
     public class CommandService
     {

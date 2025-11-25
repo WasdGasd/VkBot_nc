@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using VK.Models;
-using Services;
+using BotServices;
 
 [ApiController]
 [Route("api/callback")]

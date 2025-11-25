@@ -1,6 +1,6 @@
 ﻿using VK.Models;
 
-namespace Services
+namespace BotServices
 {
     public interface IMessageService
     {

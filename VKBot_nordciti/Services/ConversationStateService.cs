@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
 
-namespace Services
+namespace BotServices
 {
     public enum ConversationState
     {

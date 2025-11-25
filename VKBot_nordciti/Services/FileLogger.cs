@@ -1,6 +1,6 @@
 ﻿using System.Text;
 
-namespace Services
+namespace BotServices
 {
     // Очень простой файловый логгер для отладки
     public class FileLogger

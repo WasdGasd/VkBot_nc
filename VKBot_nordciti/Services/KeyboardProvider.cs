@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 
-namespace Services
+namespace BotServices
 {
     // Возвращает JSON-клавиатуры для отправки в VK
     public class KeyboardProvider

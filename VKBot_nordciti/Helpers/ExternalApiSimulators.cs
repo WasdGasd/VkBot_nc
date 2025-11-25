@@ -12,7 +12,7 @@ public static class ExternalApiSimulators
     {
         string text = $"🎟 Доступные сеансы на {date}:\n\n⏰ 10:00 — Свободно\n⏰ 13:00 — Мало мест\n⏰ 16:00 — Есть места";
         // Keyboard with times and back
-        var keyboard = new Services.KeyboardProvider().TicketsDateKeyboard(); // reuse provider for simplicity
+        var keyboard = new BotServices.KeyboardProvider().TicketsDateKeyboard(); // reuse provider for simplicity
         // But better create a sessions keyboard
         string sessionsKeyboard = JsonSerializer.Serialize(new
         {
