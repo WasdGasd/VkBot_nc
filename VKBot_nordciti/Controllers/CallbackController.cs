@@ -24,6 +24,7 @@ public class CallbackController : ControllerBase
 
         // Проверка секрета
         if (!string.IsNullOrEmpty(_config["VkSettings:SecretKey"]) && request.Secret != _config["VkSettings:SecretKey"])
+            
             return Unauthorized();
 
         switch (request.Type)

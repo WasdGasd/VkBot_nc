@@ -24,8 +24,4 @@
 	<ItemGroup>
 	  <Folder Include="Controllers\" />
 	</ItemGroup>
-
-	<ItemGroup>
-	  <ProjectReference Include="..\VKBot_nordciti\VKBot_nordciti.csproj" />
-	</ItemGroup>
 </Project>

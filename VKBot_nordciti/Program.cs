@@ -1,5 +1,9 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Services;
 using VK;
+using VKBD_nc.Data;
+using VKBD_nc.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +17,19 @@ builder.Services.AddSwaggerGen();
 
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
+builder.Services.AddDbContext<BotDbContext>(options =>
+    options.UseSqlServer(
+        
+        //configuration.GetConnectionString("DefaultConnection"),
+
+        sqlServerOptionsAction: sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 10,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null);
+        }
+        ), ServiceLifetime.Transient);
 
 builder.Services.AddCors(options =>
 {
@@ -33,7 +50,9 @@ builder.Services.AddSingleton<VkApiManager>();
 builder.Services.AddSingleton<KeyboardProvider>();
 builder.Services.AddSingleton<ConversationStateService>();
 builder.Services.AddSingleton<FileLogger>();
+builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
+
 
 var app = builder.Build();
 
