@@ -1,48 +1,101 @@
-﻿using System.Text.Json;
+﻿using VKBot_nordciti.Services;
 
-public static class ExternalApiSimulators
+namespace VKBot_nordciti.Helpers
 {
-    public static Task<string> GetParkLoadAsync()
+    public static class ExternalApiSimulators
     {
-        var text = "📊 Загруженность аквапарка:\n\n👥 Количество посетителей: 420 чел.\n📈 Загруженность: 48%\n\n💡 Рекомендация: Сейчас хорошее время для визита.";
-        return Task.FromResult(text);
-    }
-
-    public static Task<(string, string)> GetSessionsForDateAsync(string date)
-    {
-        string text = $"🎟 Доступные сеансы на {date}:\n\n⏰ 10:00 — Свободно\n⏰ 13:00 — Мало мест\n⏰ 16:00 — Есть места";
-        // Keyboard with times and back
-        var keyboard = new BotServices.KeyboardProvider().TicketsDateKeyboard(); // reuse provider for simplicity
-        // But better create a sessions keyboard
-        string sessionsKeyboard = JsonSerializer.Serialize(new
+        public static string GetParkLoadSimulated()
         {
-            one_time = true,
-            buttons = new[]
-            {
-                new[] { new { action = new { type = "text", label = "⏰ 10:00" }, color = "primary" } },
-                new[] { new { action = new { type = "text", label = "⏰ 13:00" }, color = "primary" } },
-                new[] { new { action = new { type = "text", label = "⏰ 16:00" }, color = "primary" } },
-                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
-            }
-        });
-        return Task.FromResult((text, sessionsKeyboard));
-    }
+            var random = new Random();
+            var count = random.Next(50, 300);
+            var load = random.Next(10, 95);
 
-    public static Task<(string, string)> GetFormattedTariffsAsync(string date, string session, string category)
-    {
-        // simulate tariffs list
-        string title = category == "child" ? "👶 ДЕТСКИЕ БИЛЕТЫ" : "👤 ВЗРОСЛЫЕ БИЛЕТЫ";
-        string text = $"🎟 *{title}*\n⏰ Сеанс: {session}\n📅 Дата: {date}\n\n💰 Стоимость:\n• Стандарт: 1000₽\n• VIP: 2500₽\n\n🔗 Купить: https://yes35.ru/aquapark/tickets";
-        string keyboard = JsonSerializer.Serialize(new
+            string loadStatus = load switch
+            {
+                < 30 => "🟢 Низкая загруженность",
+                < 60 => "🟡 Средняя загруженность",
+                < 85 => "🟠 Высокая загруженность",
+                _ => "🔴 Очень высокая загруженность"
+            };
+
+            string recommendation = load switch
+            {
+                < 30 => "🌟 Идеальное время для посещения!",
+                < 50 => "👍 Хорошее время, народу немного",
+                < 70 => "⚠️ Средняя загруженность, возможны очереди",
+                < 85 => "📢 Много посетителей, лучше выбрать другое время",
+                _ => "🚫 Очень высокая загруженность, не рекомендуется"
+            };
+
+            return $"📊 Загруженность аквапарка (тестовые данные):\n\n" +
+                   $"👥 Количество посетителей: {count} чел.\n" +
+                   $"📈 Уровень загруженности: {load}%\n" +
+                   $"🏷 Статус: {loadStatus}\n\n" +
+                   $"💡 Рекомендация:\n{recommendation}\n\n" +
+                   $"🕐 Обновлено: {DateTime.Now:HH:mm}";
+        }
+
+        public static string GetSessionsSimulated(string date)
         {
-            one_time = false,
-            buttons = new[]
+            var sessions = new[]
             {
-                new[] { new { action = new { type = "text", label = "💳 Оплатить" }, color = "positive" } },
-                new[] { new { action = new { type = "text", label = "🔙 К сеансам" }, color = "secondary" }, new { action = new { type = "text", label = "🔙 В начало" }, color = "negative" } }
-            }
-        });
+                new { Time = "10:00", Free = 25, Total = 50 },
+                new { Time = "12:00", Free = 15, Total = 50 },
+                new { Time = "14:00", Free = 8, Total = 50 },
+                new { Time = "16:00", Free = 30, Total = 50 },
+                new { Time = "18:00", Free = 45, Total = 50 },
+                new { Time = "20:00", Free = 20, Total = 50 }
+            };
 
-        return Task.FromResult((text, keyboard));
+            var text = $"🎟 Доступные сеансы на {date}:\n\n";
+
+            foreach (var session in sessions)
+            {
+                string availability = session.Free switch
+                {
+                    0 => "🔴 Нет мест",
+                    < 10 => "🔴 Мало мест",
+                    < 20 => "🟡 Средняя загрузка",
+                    _ => "🟢 Есть места"
+                };
+
+                text += $"⏰ *{session.Time}*\n";
+                text += $"   Свободно: {session.Free}/{session.Total} мест\n";
+                text += $"   {availability}\n\n";
+            }
+
+            return text;
+        }
+
+        public static string GetTariffsSimulated(string date, string sessionTime, string category)
+        {
+            string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
+
+            var text = $"🎟 *{categoryTitle}*\n";
+            text += $"⏰ Сеанс: {sessionTime}\n";
+            text += $"📅 Дата: {date}\n\n";
+            text += "💰 Стоимость билетов:\n\n";
+
+            if (category == "adult")
+            {
+                text += "💎 *VIP Весь день*: 2500₽\n";
+                text += "⭐ *Стандарт 4 часа*: 1500₽\n";
+                text += "🎫 *Базовый 2 часа*: 1000₽\n";
+            }
+            else
+            {
+                text += "💎 *VIP Весь день*: 1800₽\n";
+                text += "⭐ *Стандарт 4 часа*: 1000₽\n";
+                text += "🎫 *Базовый 2 часа*: 700₽\n";
+            }
+
+            text += $"\n💡 Примечания:\n";
+            text += $"• Детский билет - для детей от 4 до 12 лет\n";
+            text += $"• Дети до 4 лет - бесплатно (с взрослым)\n";
+            text += $"• VIP билеты включают дополнительные услуги\n";
+            text += $"\n\n🔗 *Купить онлайн:* yes35.ru";
+
+            return text;
+        }
     }
 }

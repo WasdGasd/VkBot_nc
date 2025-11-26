@@ -1,35 +1,51 @@
-﻿using System.Text;
+﻿using Microsoft.Extensions.Configuration;
+using System;
+using System.IO;
+using System.Threading.Tasks;
 
-namespace BotServices
+namespace VKBot_nordciti.Services
 {
-    // Очень простой файловый логгер для отладки
     public class FileLogger
     {
-        private readonly string _path;
-        private readonly object _lock = new();
+        private readonly string _logFilePath;
 
-        public FileLogger(IConfiguration config)
+        public FileLogger(IConfiguration configuration)
         {
-            var logsFolder = config["Logging:Folder"] ?? "logs";
-            if (!Directory.Exists(logsFolder)) Directory.CreateDirectory(logsFolder);
-            _path = Path.Combine(logsFolder, "bot.log");
+            var logFolder = configuration["Logging:Folder"] ?? "logs";
+            _logFilePath = Path.Combine(logFolder, "bot.log");
+
+            // Создаем папку для логов если её нет
+            Directory.CreateDirectory(logFolder);
         }
 
-        private void Write(string level, string message)
+        public void Info(string message)
         {
-            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";
-            lock (_lock)
+            Log("INFO", message);
+        }
+
+        public void Warn(string message)
+        {
+            Log("WARN", message);
+        }
+
+        public void Error(Exception ex, string context)
+        {
+            Log("ERROR", $"{context}: {ex.Message}\n{ex.StackTrace}");
+        }
+
+        private void Log(string level, string message)
+        {
+            var logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";
+            Console.WriteLine(logMessage);
+
+            try
             {
-                File.AppendAllText(_path, line + Environment.NewLine, Encoding.UTF8);
+                File.AppendAllText(_logFilePath, logMessage + Environment.NewLine);
             }
-        }
-
-        public void Info(string message) => Write("INFO", message);
-        public void Warn(string message) => Write("WARN", message);
-        public void Error(string message) => Write("ERROR", message);
-        public void Error(Exception ex, string context = "")
-        {
-            Write("ERROR", $"{context} {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+            catch (Exception)
+            {
+                // Ignore file errors
+            }
         }
     }
 }

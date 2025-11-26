@@ -1,6 +1,6 @@
-﻿using VK.Models;
+﻿using VKBot_nordciti.VK.Models;
 
-namespace BotServices
+namespace VKBot_nordciti.Services
 {
     public interface IMessageService
     {

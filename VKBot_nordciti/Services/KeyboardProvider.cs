@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 
-namespace BotServices
+namespace VKBot_nordciti.Services
 {
     public class KeyboardProvider
     {
@@ -31,6 +31,18 @@ namespace BotServices
             }
         }, _opts);
 
+        public string BackToMain() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } } }
+        }, _opts);
+
+        public string BackToInfo() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 К информации" }, color = "secondary" } } }
+        }, _opts);
+
         public string TicketsDateKeyboard()
         {
             var buttons = new List<object[]>();
@@ -42,109 +54,5 @@ namespace BotServices
             buttons.Add(new object[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } });
             return JsonSerializer.Serialize(new { one_time = true, buttons = buttons.ToArray() }, _opts);
         }
-
-        // ===========================================
-        // Исправленная клавиатура выбора категории
-        // ===========================================
-        public string TicketCategoryKeyboard()
-        {
-            var buttons = new object[][]
-            {
-                new object[]
-                {
-                    new { action = new { type = "text", label = "👤 Взрослые" }, color = "primary" }
-                },
-                new object[]
-                {
-                    new { action = new { type = "text", label = "👶 Детские" }, color = "primary" }
-                },
-                new object[]
-                {
-                    new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" }
-                }
-            };
-
-            return JsonSerializer.Serialize(new { one_time = true, inline = false, buttons }, _opts);
-        }
-
-        public string PaymentKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[] {
-                new[] { new { action = new { type = "text", label = "💳 Оплатить" }, color = "positive" } },
-                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
-            }
-        }, _opts);
-
-        public string BackToMain() => JsonSerializer.Serialize(new
-        {
-            one_time = false,
-            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } } }
-        }, _opts);
-
-        public string BackToSessions() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 К сеансам" }, color = "negative" } } }
-        }, _opts);
-
-        // ===========================================
-        // НОВЫЕ МЕТОДЫ ДЛЯ ИНФОРМАЦИОННОГО МЕНЮ
-        // ===========================================
-
-        public string WorkingHoursKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[]
-    {
-        new[] { new { action = new { type = "text", label = "🔙 К информации" }, color = "secondary" } },
-        new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } }
-    }
-        }, _opts);
-
-        public string ContactsKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[]
-            {
-        new[] { new { action = new { type = "text", label = "🔙 К информации" }, color = "secondary" } },
-        new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } }
-    }
-        }, _opts);
-
-        public string LocationKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[]
-            {
-        new[] { new { action = new { type = "text", label = "🔙 К информации" }, color = "secondary" } },
-        new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } }
-    }
-        }, _opts);
-
-        // ===========================================
-        // ДОПОЛНИТЕЛЬНЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-        // ===========================================
-
-        public string SimpleBackKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[] {
-                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
-            }
-        }, _opts);
-
-        public string YesNoKeyboard() => JsonSerializer.Serialize(new
-        {
-            one_time = true,
-            buttons = new[]
-            {
-                new[] {
-                    new { action = new { type = "text", label = "✅ Да" }, color = "positive" },
-                    new { action = new { type = "text", label = "❌ Нет" }, color = "negative" }
-                },
-                new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "secondary" } }
-            }
-        }, _opts);
     }
 }

@@ -1,6 +1,4 @@
-﻿using System.Collections.Concurrent;
-
-namespace BotServices
+﻿namespace VKBot_nordciti.Services
 {
     public enum ConversationState
     {
@@ -11,40 +9,43 @@ namespace BotServices
         WaitingForPayment
     }
 
-    // Простейший in-memory state store (thread-safe)
     public class ConversationStateService
     {
-        private readonly ConcurrentDictionary<long, ConversationState> _states = new();
-        private readonly ConcurrentDictionary<long, ConcurrentDictionary<string, string>> _data = new();
+        private readonly Dictionary<long, ConversationState> _userStates = new();
+        private readonly Dictionary<long, Dictionary<string, string>> _userData = new();
 
         public ConversationState GetState(long userId)
         {
-            if (_states.TryGetValue(userId, out var s)) return s;
-            return ConversationState.Idle;
+            return _userStates.TryGetValue(userId, out var state) ? state : ConversationState.Idle;
         }
 
         public void SetState(long userId, ConversationState state)
         {
-            _states.AddOrUpdate(userId, state, (k, old) => state);
-        }
-
-        public void SetData(long userId, string key, string value)
-        {
-            var dict = _data.GetOrAdd(userId, _ => new ConcurrentDictionary<string, string>());
-            dict.AddOrUpdate(key, value, (k, old) => value);
+            _userStates[userId] = state;
         }
 
         public string? GetData(long userId, string key)
         {
-            if (_data.TryGetValue(userId, out var dict) && dict.TryGetValue(key, out var val))
-                return val;
+            if (_userData.TryGetValue(userId, out var data) && data.TryGetValue(key, out var value))
+            {
+                return value;
+            }
             return null;
         }
 
-        public void Clear(long userId)
+        public void SetData(long userId, string key, string value)
         {
-            _states.TryRemove(userId, out _);
-            _data.TryRemove(userId, out _);
+            if (!_userData.ContainsKey(userId))
+            {
+                _userData[userId] = new Dictionary<string, string>();
+            }
+            _userData[userId][key] = value;
+        }
+
+        public void ClearUserData(long userId)
+        {
+            _userStates.Remove(userId);
+            _userData.Remove(userId);
         }
     }
 }
