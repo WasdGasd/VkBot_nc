@@ -28,6 +28,9 @@ builder.Services.AddDbContext<BotDbContext>(options =>
 
 // 4. Swagger
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddScoped<IMessageService, MesService>();
+builder.Services.AddScoped<ICommandService, CommandService>();
+builder.Services.AddScoped<IDataInitializer, DataInitializer>();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo

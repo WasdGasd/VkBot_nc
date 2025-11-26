@@ -7,5 +7,6 @@ namespace VKBot_nordciti.Services
         Task<Command?> FindCommandAsync(string messageText);
         Task<List<Command>> GetAllCommandsAsync();
         Task<string> ProcessCommandAsync(Command command, Dictionary<string, string>? parameters = null);
+        Task<List<CommandService.SessionInfo>> GetSessionsListAsync(string date);
     }
 }
