@@ -11,6 +11,7 @@ namespace BotServices
 {
     public class MesService : IMessageService
     {
+        // Зависимости сервиса
         private readonly VkApiManager _vk;
         private readonly KeyboardProvider _kb;
         private readonly ConversationStateService _state;
@@ -19,6 +20,7 @@ namespace BotServices
         private readonly BotDbContext _db;
         private readonly IHttpClientFactory _httpClientFactory;
 
+        // Настройки для десериализации JSON
         private readonly JsonSerializerOptions _jsonOptions =
             new() { PropertyNameCaseInsensitive = true };
 
@@ -40,6 +42,7 @@ namespace BotServices
             _httpClientFactory = httpClientFactory;
         }
 
+        /// Основной метод обработки входящих сообщений
         public async Task ProcessMessageAsync(VkMessage message)
         {
             try
@@ -49,11 +52,14 @@ namespace BotServices
 
                 _logger.Info($"Received from {userId}: {text}");
 
+                // Получаем текущее состояние диалога
                 var state = _state.GetState(userId);
 
                 // ======================================================
                 //                КОМАНДЫ ИЗ БАЗЫ ДАННЫХ
                 // ======================================================
+
+                // Пытаемся найти команду в базе данных по тексту сообщения
                 var dbCommand = await _commandService.FindCommandAsync(text);
 
                 // ЕСЛИ НАШЛИ КОМАНДУ В БД - ОТПРАВЛЯЕМ ОТВЕТ И ВЫХОДИМ
@@ -68,39 +74,93 @@ namespace BotServices
                 }
 
                 // ======================================================
-                // 2. ПОТОМ - API ДАННЫЕ (динамические через состояния)
+                // УНИВЕРСАЛЬНАЯ ОБРАБОТКА КНОПОК ВОЗВРАТА
                 // ======================================================
-                switch (state)
+
+                // Обработка различных вариантов команды "назад"
+                if (text.Contains("🔙 В начало") || text.Contains("🔙 Главное меню") ||
+                    text.ToLower().Contains("главное меню") || text.ToLower().Contains("в начало"))
+                {
+                    _state.SetState(userId, ConversationState.Idle);
+                    await _vk.SendMessageAsync(message.PeerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
+                    return;
+                }
+
+                // Возврат к выбору сеансов
+                if (text.Contains("🔙 К сеансам") || text.ToLower().Contains("к сеансам"))
+                {
+                    var date = _state.GetData(userId, "date") ?? DateTime.Now.ToString("dd.MM.yyyy");
+                    var (sessionsText, kbJson) = await GetSessionsForDateAsync(date);
+                    _state.SetState(userId, ConversationState.WaitingForSession);
+                    await _vk.SendMessageAsync(message.PeerId, sessionsText, kbJson);
+                    return;
+                }
+
+                if (text.Contains("🔙 К информации") || text.ToLower().Contains("к информации"))
+                {
+                    _state.SetState(userId, ConversationState.Idle);
+                    await _vk.SendMessageAsync(message.PeerId, "Выберите нужный раздел информации 👇", _kb.InfoMenu());
+                    return;
+                }
+
+
+
+
+                    // ======================================================
+                    // 2. ПОТОМ - API ДАННЫЕ (динамические через состояния)
+                    // ======================================================
+
+                    // Обработка в зависимости от текущего состояния диалога
+                    switch (state)
                 {
                     case ConversationState.Idle:
-                        // Обработка загруженности напрямую из сообщения
+                        // Главное меню - обработка основных команд
+                        if (text.Contains("🔙") || text.ToLower().Contains("назад"))
+                        {
+                            await _vk.SendMessageAsync(message.PeerId, "Вы уже в главном меню 👇", _kb.MainMenu());
+                            break;
+                        }
+
+                        // Запрос загруженности парка
                         if (text.Contains("📊") || text.ToLower().Contains("загруженность"))
                         {
                             var loadInfo = await GetParkLoadAsync();
                             await _vk.SendMessageAsync(message.PeerId, loadInfo, _kb.BackToMain());
                         }
-                        // Обработка начала покупки билетов
+                        // Начало процесса покупки билетов
                         else if (text.Contains("📅") || text.ToLower().Contains("билеты") || text.ToLower().Contains("билет"))
                         {
                             _state.SetState(userId, ConversationState.WaitingForDate);
                             await _vk.SendMessageAsync(message.PeerId, "Выберите дату для посещения:", _kb.TicketsDateKeyboard());
                         }
+                        // Меню информации
+                        else if (text.Contains("ℹ️") || text.ToLower().Contains("информация") || text.ToLower().Contains("инфо"))
+                        {
+                            await _vk.SendMessageAsync(message.PeerId, "Выберите нужный раздел информации 👇", _kb.InfoMenu());
+                        }
                         else
                         {
+                            // Сообщение по умолчанию, если команда не распознана
                             await _vk.SendMessageAsync(message.PeerId, "Я вас не понял — выберите пункт меню 👇", _kb.MainMenu());
                         }
                         break;
 
                     case ConversationState.WaitingForDate:
+                        // Ожидание выбора даты
                         if (text.StartsWith("📅"))
                         {
                             var date = text.Replace("📅", "").Trim();
                             _state.SetData(userId, "date", date);
                             _state.SetState(userId, ConversationState.WaitingForSession);
 
-                            // API: получение сеансов
+                            // API: получение доступных сеансов для выбранной даты
                             var (sessionsText, keyboardJson) = await GetSessionsForDateAsync(date);
                             await _vk.SendMessageAsync(message.PeerId, sessionsText, keyboardJson);
+                        }
+                        else if (text.Contains("🔙") || text.ToLower().Contains("назад"))
+                        {
+                            _state.SetState(userId, ConversationState.Idle);
+                            await _vk.SendMessageAsync(message.PeerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
                         }
                         else
                         {
@@ -109,6 +169,7 @@ namespace BotServices
                         break;
 
                     case ConversationState.WaitingForSession:
+                        // Ожидание выбора сеанса
                         if (text.StartsWith("⏰"))
                         {
                             var session = text.Replace("⏰", "").Trim();
@@ -131,6 +192,7 @@ namespace BotServices
                         break;
 
                     case ConversationState.WaitingForCategory:
+                        // Ожидание выбора категории билетов
                         if (IsTicketCategoryMessage(text))
                         {
                             var category = GetTicketCategoryFromMessage(text);
@@ -139,7 +201,7 @@ namespace BotServices
                             var date = _state.GetData(userId, "date") ?? "неизвестная дата";
                             var sessionSelected = _state.GetData(userId, "session") ?? "неизвестный сеанс";
 
-                            // API: получение тарифов
+                            // API: получение тарифов для выбранных параметров
                             var (tariffsText, tariffsKb) = await GetFormattedTariffsAsync(date, sessionSelected, category);
 
                             _state.SetState(userId, ConversationState.WaitingForPayment);
@@ -159,6 +221,7 @@ namespace BotServices
                         break;
 
                     case ConversationState.WaitingForPayment:
+                        // Ожидание оплаты (симуляция)
                         if (text.Contains("💳") || text.ToLower().Contains("оплат"))
                         {
                             _state.SetState(userId, ConversationState.Idle);
@@ -175,6 +238,31 @@ namespace BotServices
                         }
                         break;
                 }
+
+                // ======================================================
+                // ОБРАБОТКА ИНФОРМАЦИОННЫХ КОМАНД ИЗ ЛЮБОГО СОСТОЯНИЯ
+                // ======================================================
+
+                // Контактная информация
+                if (text.Contains("📞") || text.ToLower().Contains("контакт") || text.ToLower().Contains("телефон"))
+                {
+                    await _vk.SendMessageAsync(message.PeerId, GetContacts(), _kb.ContactsKeyboard());
+                    return;
+                }
+
+                // Информация о местоположении
+                if (text.Contains("📍") || text.ToLower().Contains("адрес") || text.ToLower().Contains("как добраться") || text.ToLower().Contains("местоположение"))
+                {
+                    await _vk.SendMessageAsync(message.PeerId, GetLocationInfo(), _kb.LocationKeyboard());
+                    return;
+                }
+
+                // Режим работы
+                if (text.Contains("⏰") || text.ToLower().Contains("режим работы") || text.ToLower().Contains("время работы"))
+                {
+                    await _vk.SendMessageAsync(message.PeerId, GetWorkingHours(), _kb.WorkingHoursKeyboard());
+                    return;
+                }
             }
             catch (Exception ex)
             {
@@ -186,6 +274,7 @@ namespace BotServices
         //               РЕАЛЬНЫЕ API МЕТОДЫ
         // ======================================================
 
+        /// Получение информации о загруженности аквапарка
         private async Task<string> GetParkLoadAsync()
         {
             try
@@ -206,14 +295,16 @@ namespace BotServices
                     return "❌ Не удалось обработать данные о загруженности 😔";
                 }
 
+                // Определение уровня загруженности
                 string loadStatus = data.Load switch
                 {
-                    < 30 => "🟢 Низкая",
-                    < 60 => "🟡 Средняя",
-                    < 85 => "🟠 Высокая",
-                    _ => "🔴 Очень высокая"
+                    < 30 => "🟢 Низкая загруженность",
+                    < 60 => "🟡 Средняя загруженность",
+                    < 85 => "🟠 Высокая загруженность",
+                    _ => "🔴 Очень высокая загруженность"
                 };
 
+                // Рекомендации в зависимости от загруженности
                 string recommendation = data.Load switch
                 {
                     < 30 => "🌟 Идеальное время для посещения!",
@@ -237,6 +328,7 @@ namespace BotServices
             }
         }
 
+        /// Получение списка сеансов для указанной даты
         private async Task<(string message, string keyboard)> GetSessionsForDateAsync(string date)
         {
             try
@@ -256,11 +348,12 @@ namespace BotServices
                 var sessionsJson = await sessionsResponse.Content.ReadAsStringAsync();
                 _logger.Info($"Сырой ответ сеансов: {sessionsJson}");
 
-                // Пробуем разные варианты парсинга
+                // Пробуем разные варианты парсинга JSON ответа
                 try
                 {
                     var sessionsData = JsonSerializer.Deserialize<JsonElement>(sessionsJson, _jsonOptions);
 
+                    // Проверяем различные возможные структуры ответа
                     if (sessionsData.ValueKind == JsonValueKind.Array)
                     {
                         return ProcessSessionsArray(sessionsData.EnumerateArray().ToArray(), date);
@@ -292,6 +385,7 @@ namespace BotServices
             }
         }
 
+        /// Получение отформатированных тарифов для выбранных параметров
         private async Task<(string message, string keyboard)> GetFormattedTariffsAsync(string date, string sessionTime, string category)
         {
             try
@@ -316,6 +410,7 @@ namespace BotServices
                     return ("😔 На выбранную дату нет доступных тарифов", _kb.BackToMain());
                 }
 
+                // Формируем заголовок в зависимости от категории
                 string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
                 string text = $"🎟 *{categoryTitle}*\n";
                 text += $"⏰ Сеанс: {sessionTime}\n";
@@ -324,21 +419,25 @@ namespace BotServices
                 var filteredTariffs = new List<(string name, decimal price)>();
                 var seenTariffs = new HashSet<string>();
 
+                // Обрабатываем каждый тариф из ответа API
                 foreach (var t in tariffsArray.EnumerateArray())
                 {
                     string name = t.TryGetProperty("Name", out var n) ? n.GetString() ?? "" : "";
                     decimal price = t.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0;
 
+                    // Альтернативные названия свойств
                     if (string.IsNullOrEmpty(name))
                         name = t.TryGetProperty("name", out var n2) ? n2.GetString() ?? "" : "";
 
                     if (price == 0)
                         price = t.TryGetProperty("price", out var p2) ? p2.GetDecimal() : 0;
 
+                    // Убираем дубликаты
                     string tariffKey = $"{name.ToLower()}_{price}";
                     if (seenTariffs.Contains(tariffKey)) continue;
                     seenTariffs.Add(tariffKey);
 
+                    // Фильтруем по категории
                     string nameLower = name.ToLower();
                     bool isAdult = nameLower.Contains("взрос") || nameLower.Contains("adult");
                     bool isChild = nameLower.Contains("детск") || nameLower.Contains("child") || nameLower.Contains("kids");
@@ -350,6 +449,7 @@ namespace BotServices
                     }
                 }
 
+                // Формируем текст ответа в зависимости от наличия тарифов
                 if (filteredTariffs.Count == 0)
                 {
                     text += "😔 Нет доступных билетов этой категории\n";
@@ -357,6 +457,7 @@ namespace BotServices
                 }
                 else
                 {
+                    // Группируем и сортируем тарифы
                     var groupedTariffs = filteredTariffs
                         .GroupBy(t => FormatTicketName(t.name))
                         .Select(g => g.First())
@@ -365,6 +466,7 @@ namespace BotServices
 
                     text += "💰 Стоимость билетов:\n\n";
 
+                    // Добавляем каждый тариф в текст
                     foreach (var (name, price) in groupedTariffs)
                     {
                         string emoji = price > 2000 ? "💎" : price > 1000 ? "⭐" : "🎫";
@@ -372,6 +474,7 @@ namespace BotServices
                         text += $"{emoji} *{formattedName}*: {price}₽\n";
                     }
 
+                    // Добавляем примечания
                     text += $"\n💡 Примечания:\n";
                     text += $"• Детский билет - для детей от 4 до 12 лет\n";
                     text += $"• Дети до 4 лет - бесплатно (с взрослым)\n";
@@ -380,6 +483,7 @@ namespace BotServices
 
                 text += $"\n\n🔗 *Купить онлайн:* yes35.ru";
 
+                // Формируем клавиатуру для ответа
                 object[][] keyboardButtons = new object[][]
                 {
                     new object[]
@@ -394,7 +498,7 @@ namespace BotServices
                     new object[]
                     {
                         new { action = new { type = "text", label = "🔙 К сеансам" }, color = "secondary" },
-                        new { action = new { type = "text", label = "🔙 В начало" }, color = "negative" }
+                        new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" }
                     }
                 };
 
@@ -418,12 +522,14 @@ namespace BotServices
         //               ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
         // ======================================================
 
+        /// Обработка массива сеансов и формирование ответа
         private (string message, string keyboard) ProcessSessionsArray(JsonElement[] sessionsArray, string date)
         {
-            string text = $"🎟 *Доступные сеансы на {date}:*\n\n";
+            string text = $"🎟 Доступные сеансы на {date}:\n\n";
             var buttonsList = new List<object[]>();
             int availableSessions = 0;
 
+            // Обрабатываем каждый сеанс
             foreach (var session in sessionsArray)
             {
                 try
@@ -434,12 +540,14 @@ namespace BotServices
                     int placesFree = GetPlacesFree(session);
                     int placesTotal = GetPlacesTotal(session);
 
+                    // Если данные о местах отсутствуют, используем значения по умолчанию
                     if (placesFree == 0 && placesTotal == 0)
                     {
                         placesFree = 1;
                         placesTotal = 50;
                     }
 
+                    // Определяем статус доступности
                     string availability = placesFree switch
                     {
                         0 => "🔴 Нет мест",
@@ -448,10 +556,12 @@ namespace BotServices
                         _ => "🟢 Есть места"
                     };
 
+                    // Добавляем информацию о сеансе в текст
                     text += $"⏰ *{sessionTime}*\n";
                     text += $"   Свободно: {placesFree}/{placesTotal} мест\n";
                     text += $"   {availability}\n\n";
 
+                    // Добавляем кнопку для выбора сеанса
                     buttonsList.Add(new[]
                     {
                         new { action = new { type = "text", label = $"⏰ {sessionTime}" }, color = "primary" }
@@ -466,16 +576,19 @@ namespace BotServices
                 }
             }
 
+            // Если нет доступных сеансов
             if (availableSessions == 0)
             {
                 return ($"😔 На {date} нет доступных сеансов или все заняты.", _kb.TicketsDateKeyboard());
             }
 
+            // Добавляем кнопку "Назад"
             buttonsList.Add(new[]
             {
                 new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" }
             });
 
+            // Формируем клавиатуру
             string keyboard = JsonSerializer.Serialize(new
             {
                 one_time = true,
@@ -486,10 +599,12 @@ namespace BotServices
             return (text, keyboard);
         }
 
+        /// Извлечение времени сеанса из JSON элемента
         private string GetSessionTime(JsonElement session)
         {
             string[] timeFields = { "sessionTime", "SessionTime", "time", "Time", "name", "Name", "title", "Title" };
 
+            // Пробуем разные возможные названия полей
             foreach (var field in timeFields)
             {
                 if (session.TryGetProperty(field, out var timeProp) && timeProp.ValueKind == JsonValueKind.String)
@@ -502,6 +617,7 @@ namespace BotServices
             return "Время не указано";
         }
 
+        /// Извлечение количества свободных мест из JSON элемента
         private int GetPlacesFree(JsonElement session)
         {
             string[] freeFields = { "availableCount", "AvailableCount", "placesFree", "PlacesFree", "free", "Free", "available", "Available" };
@@ -515,7 +631,7 @@ namespace BotServices
             }
             return 0;
         }
-
+        /// Извлечение общего количества мест из JSON элемента
         private int GetPlacesTotal(JsonElement session)
         {
             string[] totalFields = { "totalCount", "TotalCount", "placesTotal", "PlacesTotal", "total", "Total", "capacity", "Capacity" };
@@ -530,6 +646,7 @@ namespace BotServices
             return 0;
         }
 
+        /// Форматирование названия билета для красивого отображения
         private static string FormatTicketName(string name)
         {
             if (string.IsNullOrEmpty(name))
@@ -546,11 +663,13 @@ namespace BotServices
                 .Replace("  ", " ")
                 .Trim();
 
+            // Обработка VIP билетов
             if (formatted.StartsWith("VIP") || formatted.StartsWith("Вип"))
             {
                 formatted = "VIP" + formatted.Substring(3).Trim();
             }
 
+            // Убираем двойные пробелы
             while (formatted.Contains("  "))
             {
                 formatted = formatted.Replace("  ", " ");
@@ -559,18 +678,69 @@ namespace BotServices
             return string.IsNullOrEmpty(formatted) ? "Стандартный" : formatted;
         }
 
+        /// Проверка, является ли сообщение выбором категории билетов
         private static bool IsTicketCategoryMessage(string msg)
         {
             var lower = msg.ToLower();
             return lower.Contains("взрос") || lower.Contains("дет") || lower.Contains("👤") || lower.Contains("👶");
         }
 
+        /// Определение категории билета из текста сообщения
         private static string GetTicketCategoryFromMessage(string msg)
         {
             var lower = msg.ToLower();
             return (lower.Contains("дет") || lower.Contains("👶")) ? "child" : "adult";
         }
 
+        // ======================================================
+        //               ИНФОРМАЦИОННЫЕ МЕТОДЫ
+        // ======================================================
+
+        private static string GetWorkingHours() => "🏢 Режим работы:\n\n⏰ Ежедневно: 10:00 - 22:00\n📅 Без выходных";
+
+        private static string GetContacts() => "📞 Контакты:\n" +
+            "📱 Телефон для связи:\n" +
+            "• Основной: (8172) 33-06-06\n" +
+            "• Ресторан: 8-800-200-67-71\n\n" +
+
+            "📧 Электронная почта:\n" +
+                    "yes@yes35.ru\n\n" +
+
+            "🌐 Мы в соцсетях:\n" +
+                    "ВКонтакте: vk.com/yes35\n" +
+                    "Telegram: t.me/CentreYES35\n" +
+                    "WhatsApp: ссылка в профиле\n\n" +
+
+                    "⏰ Часы работы call-центра:\n" +
+                    "🕙 09:00 - 22:00";
+
+        private static string GetLocationInfo() => "📍 *Центр YES - Как добраться*\n\n" +
+
+                 "🏠 Адрес:\n" +
+                 "Вологодская область, М.О. Вологодский\n" +
+                 "д. Брагино, тер. Центр развлечений\n\n" +
+
+                 "🚗 На автомобиле:\n" +
+                 "• По федеральной трассе А114 'Вологда - Новая Ладога'\n" +
+                 "• На повороте к Центру на трассе установлен заметный баннер-указатель.\n" +
+                 "• 💰 Бесплатная парковка* на территории\n\n" +
+
+                 "🚍 Общественный транспорт:\n" +
+                 "• От автовокзала Вологды (площадь Бабушкина, 10) ходят ежедневные и регулярные рейсовые автобусы\n" +
+
+                 "🗺 Координаты для навигатора:\n" +
+                 "59.1858° с.ш., 39.7685° в.д.\n\n" +
+
+                 "⏱ Расстояния:\n" +
+                 "• От г. Вологды: ~34 км\n" +
+                 "• От г. Череповца: ~107 км\n" +
+
+
+                 "🏞 Расположение:\n" +
+                 "Круглогодичный развлекательный комплекс\n" +
+                 "в живописной лесной зоне под Вологдой";
+
+        /// Модель для десериализации ответа о загруженности парка
         private class ParkLoadResponse
         {
             public int Count { get; set; }
