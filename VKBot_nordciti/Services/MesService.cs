@@ -56,18 +56,15 @@ namespace BotServices
                 // ======================================================
                 var dbCommand = await _commandService.FindCommandAsync(text);
 
+                // ЕСЛИ НАШЛИ КОМАНДУ В БД - ОТПРАВЛЯЕМ ОТВЕТ И ВЫХОДИМ
                 if (dbCommand != null)
                 {
-                    _db.CommandLogs.Add(new CommandLog
-                    {
-                        UserId = userId,
-                        Command = dbCommand.Name,
-                        Timestamp = DateTime.Now
-                    });
-
-                    await _db.SaveChangesAsync();
-
-
+                    await _vk.SendMessageAsync(
+                        message.PeerId,
+                        dbCommand.Response,           // Текст ответа из БД
+                        dbCommand.KeyboardJson        // Клавиатура из БД  
+                    );
+                    return; // ВАЖНО: выходим, чтобы не обрабатывать дальше
                 }
 
                 // ======================================================

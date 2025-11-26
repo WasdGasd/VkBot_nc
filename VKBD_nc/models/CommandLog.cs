@@ -1,15 +1,15 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace VKBD_nc.models
 {
     public class CommandLog
     {
+        [Key]
         public int Id { get; set; }
-        public long UserId { get; set; }
-        public string Command { get; set; } = string.Empty;
-        public DateTime Timestamp { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string KeyboardJson { get; set; } = string.Empty;
-        public string Response { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty; // пример: /start
+        public string Response { get; set; } = string.Empty; // текст ответа
+        public string? KeyboardJson { get; set; } // если null — клавиатуры нет
+        
     }
 }

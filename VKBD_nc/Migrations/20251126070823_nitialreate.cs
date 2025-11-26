@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace VKBD_nc.Migrations
 {
     /// <inheritdoc />
-    public partial class Nitialreate : Migration
+    public partial class nitialreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -17,9 +17,10 @@ namespace VKBD_nc.Migrations
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    UserId = table.Column<long>(type: "INTEGER", nullable: false),
-                    Command = table.Column<string>(type: "TEXT", nullable: false),
-                    Timestamp = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Name = table.Column<string>(type: "TEXT", nullable: false),
+                    Response = table.Column<string>(type: "TEXT", nullable: false),
+                    KeyboardJson = table.Column<string>(type: "TEXT", nullable: true),
+                    IsAdmin = table.Column<int>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {

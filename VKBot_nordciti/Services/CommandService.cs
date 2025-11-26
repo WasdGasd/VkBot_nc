@@ -2,6 +2,7 @@
 using Models;
 using VKBD_nc.Data;
 using VKBD_nc.models;
+using CommandLog = VKBD_nc.models.CommandLog;
 
 namespace BotServices
 {
@@ -14,12 +15,16 @@ namespace BotServices
             _db = db;
         }
 
-        public async Task<CommandLog?> FindCommandAsync(string text)
+        public async Task<CommandLog?> FindCommandAsync(string message)
         {
-            var lower = text.ToLower();
+            if (string.IsNullOrWhiteSpace(message))
+                return null;
+
+            string msg = message.ToLower();
 
             return await _db.CommandLogs
-                .FirstOrDefaultAsync(c => lower.Contains(c.Name.ToLower()));
+                .FirstOrDefaultAsync(c => msg.Contains(c.Name.ToLower()));
         }
+
     }
 }

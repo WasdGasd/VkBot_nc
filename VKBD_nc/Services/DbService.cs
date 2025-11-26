@@ -14,16 +14,7 @@ namespace VKBD_nc.Services
         }
 
         // Лог команды
-        public async Task LogCommandAsync(long userId, string cmd)
-        {
-            _db.CommandLogs.Add(new CommandLog
-            {
-                UserId = userId,
-                Command = cmd,
-                Timestamp = DateTime.UtcNow
-            });
-            await _db.SaveChangesAsync();
-        }
+        
 
         // Получить или создать user session
         public async Task<UserSession> GetSessionAsync(long userId)
