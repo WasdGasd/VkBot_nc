@@ -1,4 +1,4 @@
-﻿using VKBot_nordciti.VK;
+using VKBot_nordciti.VK;
 using VKBot_nordciti.VK.Models;
 using System.Text.Json;
 
@@ -403,7 +403,7 @@ namespace VKBot_nordciti.Services
                 }
 
                 string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
-                string text = $"🎟 *{categoryTitle}*\n";
+                string text = $"🎟 {categoryTitle}\n";
                 text += $"⏰ Сеанс: {sessionTime}\n";
                 text += $"📅 Дата: {date}\n\n";
 
@@ -455,7 +455,7 @@ namespace VKBot_nordciti.Services
                     {
                         string emoji = price > 2000 ? "💎" : price > 1000 ? "⭐" : "🎫";
                         string formattedName = FormatTicketName(name);
-                        text += $"{emoji} *{formattedName}*: {price}₽\n";
+                        text += $"{emoji} {formattedName}: {price}₽\n";
                     }
 
                     text += $"\n💡 Примечания:\n";
@@ -464,7 +464,7 @@ namespace VKBot_nordciti.Services
                     text += $"• VIP билеты включают дополнительные услуги\n";
                 }
 
-                text += $"\n\n🔗 *Купить онлайн:* yes35.ru";
+                text += $"\n\n🔗 Купить онлайн: yes35.ru";
 
                 object[][] keyboardButtons = new object[][]
                 {
@@ -506,7 +506,7 @@ namespace VKBot_nordciti.Services
 
         private (string message, string keyboard) ProcessSessionsArray(JsonElement[] sessionsArray, string date)
         {
-            string text = $"🎟 *Доступные сеансы на {date}:*\n\n";
+            string text = $"🎟 Доступные сеансы на {date}:\n\n";
             var buttonsList = new List<object[]>();
             int availableSessions = 0;
 
@@ -534,7 +534,7 @@ namespace VKBot_nordciti.Services
                         _ => "🟢 Есть места"
                     };
 
-                    text += $"⏰ *{sessionTime}*\n";
+                    text += $"⏰ {sessionTime}\n";
                     text += $"   Свободно: {placesFree}/{placesTotal} мест\n";
                     text += $"   {availability}\n\n";
 
