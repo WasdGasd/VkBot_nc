@@ -21,15 +21,39 @@ namespace VKBot_nordciti.Services
             _botDbContext = botDbContext;
         }
 
+
+        // ВСТАВИТЬ ВМЕСТО НИХ ЭТО:
         public async Task<Command?> FindCommandAsync(string messageText)
         {
-            return await Task.FromResult<Command?>(null);
+            if (string.IsNullOrWhiteSpace(messageText))
+                return null;
+
+            var normalizedText = messageText.ToLower().Trim();
+            var commands = await _botDbContext.Commands.ToListAsync();
+
+            foreach (var command in commands)
+            {
+                if (string.IsNullOrWhiteSpace(command.Triggers))
+                    continue;
+
+                var triggers = command.Triggers.ToLower().Split(',')
+                    .Select(t => t.Trim())
+                    .Where(t => !string.IsNullOrEmpty(t))
+                    .ToList();
+
+                if (triggers.Any(trigger => normalizedText.Contains(trigger)))
+                {
+                    return command;
+                }
+            }
+            return null;
         }
 
         public async Task<List<Command>> GetAllCommandsAsync()
         {
-            return await Task.FromResult(new List<Command>());
+            return await _botDbContext.Commands.ToListAsync();
         }
+
 
         public async Task<string> ProcessCommandAsync(Command command, Dictionary<string, string>? parameters = null)
         {
@@ -84,113 +108,7 @@ namespace VKBot_nordciti.Services
             return default;
         }
 
-        private async Task<string> GetParkLoadAsync()
-        {
-            try
-            {
-                var client = _httpClientFactory.CreateClient();
-                var requestData = new { SiteID = "1" };
-                var response = await client.PostAsJsonAsync("https://apigateway.nordciti.ru/v1/aqua/CurrentLoad", requestData);
 
-                if (!response.IsSuccessStatusCode)
-                    return "❌ Не удалось получить данные о загруженности. Попробуйте позже 😔";
-
-                var data = await response.Content.ReadFromJsonAsync<ParkLoadResponse>(_jsonOptions);
-                if (data == null)
-                    return "❌ Не удалось обработать данные о загруженности 😔";
-
-                string loadStatus = data.Load switch
-                {
-                    < 30 => "🟢 Низкая загруженность",
-                    < 60 => "🟡 Средняя загруженность",
-                    < 85 => "🟠 Высокая загруженность",
-                    _ => "🔴 Очень высокая загруженность"
-                };
-
-                string recommendation = data.Load switch
-                {
-                    < 30 => "🌟 Идеальное время для посещения!",
-                    < 50 => "👍 Хорошее время, народу немного",
-                    < 70 => "⚠️ Средняя загруженность, возможны очереди",
-                    < 85 => "📢 Много посетителей, лучше выбрать другое время",
-                    _ => "🚫 Очень высокая загруженность, не рекомендуется"
-                };
-
-                return $"📊 Загруженность аквапарка:\n\n" +
-                       $"👥 Количество посетителей: {data.Count} чел.\n" +
-                       $"📈 Уровень загруженности: {data.Load}%\n" +
-                       $"🏷 Статус: {loadStatus}\n\n" +
-                       $"💡 Рекомендация:\n{recommendation}\n\n" +
-                       $"🕐 Обновлено: {DateTime.Now:HH:mm}";
-            }
-            catch (Exception)
-            {
-                return "❌ Не удалось получить информацию о загруженности. Попробуйте позже 😔";
-            }
-        }
-
-        private async Task<string> GetSessionsAsync(Dictionary<string, string>? parameters)
-        {
-            try
-            {
-                var date = parameters?["date"] ?? DateTime.Now.ToString("dd.MM.yyyy");
-                var sessions = await GetSessionsListAsync(date);
-
-                if (sessions.Count == 0)
-                {
-                    return $"😔 На {date} нет доступных сеансов.";
-                }
-
-                var text = $"🎟 Доступные сеансы на {date}:\n\n";
-
-                foreach (var session in sessions)
-                {
-                    string availability = session.PlacesFree switch
-                    {
-                        0 => "🔴 Нет мест",
-                        < 10 => "🔴 Мало мест",
-                        < 20 => "🟡 Средняя загрузка",
-                        _ => "🟢 Есть места"
-                    };
-
-                    text += $"⏰ {session.Time}\n";
-                    text += $"   Свободно: {session.PlacesFree}/{session.PlacesTotal} мест\n";
-                    text += $"   {availability}\n\n";
-                }
-
-                return text;
-            }
-            catch (Exception ex)
-            {
-                return $"❌ Ошибка при получении сеансов: {ex.Message}";
-            }
-        }
-
-        private async Task<string> GetTariffsAsync(Dictionary<string, string>? parameters)
-        {
-            try
-            {
-                var date = parameters?["date"] ?? DateTime.Now.ToString("dd.MM.yyyy");
-                var sessionTime = parameters?["session"];
-                var category = parameters?["category"];
-
-                var client = _httpClientFactory.CreateClient();
-                var tariffsUrl = $"https://apigateway.nordciti.ru/v1/aqua/getTariffsAqua?date={date}";
-                var tariffsResponse = await client.GetAsync(tariffsUrl);
-
-                if (!tariffsResponse.IsSuccessStatusCode)
-                    return "❌ Ошибка при загрузке тарифов";
-
-                var tariffsJson = await tariffsResponse.Content.ReadAsStringAsync();
-                var tariffsData = JsonSerializer.Deserialize<JsonElement>(tariffsJson, _jsonOptions);
-
-                return ProcessTariffsData(tariffsData, date, sessionTime, category);
-            }
-            catch (Exception ex)
-            {
-                return $"❌ Ошибка при получении тарифов: {ex.Message}";
-            }
-        }
 
         private List<SessionInfo> ParseSessionsFromArray(JsonElement array)
         {
