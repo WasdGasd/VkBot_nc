@@ -42,6 +42,25 @@ namespace VKBD_nc.Controllers
                         return Ok(confirmCode);
                     }
 
+                    // Обработка события разрешения сообщений
+                    if (type == "message_allow")
+                    {
+                        _logger.LogInformation("Processing message_allow event");
+
+                        if (request.TryGetProperty("object", out var objectElement))
+                        {
+                            if (objectElement.TryGetProperty("user_id", out var userIdProp))
+                            {
+                                var userId = userIdProp.GetInt64();
+                                _logger.LogInformation($"User {userId} allowed messages");
+
+                                // Вызываем метод для отправки приветственного сообщения
+                                await _messageService.HandleMessageAllowEvent(userId);
+                            }
+                        }
+                        return Ok("ok");
+                    }
+
                     if (type == "message_new")
                     {
                         var message = ParseMessage(request);

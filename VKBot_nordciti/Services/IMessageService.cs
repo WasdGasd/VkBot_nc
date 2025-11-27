@@ -5,5 +5,6 @@ namespace VKBot_nordciti.Services
     public interface IMessageService
     {
         Task ProcessMessageAsync(VkMessage message);
+        Task HandleMessageAllowEvent(long userId);
     }
 }

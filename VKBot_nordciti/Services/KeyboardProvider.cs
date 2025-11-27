@@ -6,6 +6,23 @@ namespace VKBot_nordciti.Services
     {
         private readonly JsonSerializerOptions _opts = new() { PropertyNamingPolicy = null };
 
+        public string StartKeyboard() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[]
+            {
+                new[] {
+                    new {
+                        action = new {
+                            type = "text",
+                            label = "🎯 НАЧАТЬ"
+                        },
+                        color = "positive"
+                    }
+                }
+            }
+        }, _opts);
+
         public string MainMenu() => JsonSerializer.Serialize(new
         {
             one_time = false,
@@ -23,21 +40,21 @@ namespace VKBot_nordciti.Services
         {
             one_time = true,
             buttons = new[]
-    {
-        new[] { new { action = new { type = "text", label = "👤 Взрослые" }, color = "primary" } },
-        new[] { new { action = new { type = "text", label = "👶 Детские" }, color = "primary" } },
-        new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
-    }
+            {
+                new[] { new { action = new { type = "text", label = "👤 Взрослые" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "👶 Детские" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
+            }
         }, _opts);
 
         public string PaymentKeyboard() => JsonSerializer.Serialize(new
         {
             one_time = true,
             buttons = new[]
-    {
-        new[] { new { action = new { type = "text", label = "💳 Оплатить" }, color = "positive" } },
-        new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
-    }
+            {
+                new[] { new { action = new { type = "text", label = "💳 Оплатить" }, color = "positive" } },
+                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
+            }
         }, _opts);
 
         public string InfoMenu() => JsonSerializer.Serialize(new
