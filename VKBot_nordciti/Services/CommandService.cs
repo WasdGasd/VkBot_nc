@@ -151,7 +151,7 @@ namespace VKBot_nordciti.Services
                         _ => "🟢 Есть места"
                     };
 
-                    text += $"⏰ *{session.Time}*\n";
+                    text += $"⏰ {session.Time}\n";
                     text += $"   Свободно: {session.PlacesFree}/{session.PlacesTotal} мест\n";
                     text += $"   {availability}\n\n";
                 }
@@ -272,7 +272,7 @@ namespace VKBot_nordciti.Services
             try
             {
                 string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
-                var text = $"🎟 *{categoryTitle}*\n";
+                var text = $"🎟 {categoryTitle}\n";
                 text += $"⏰ Сеанс: {sessionTime}\n";
                 text += $"📅 Дата: {date}\n\n";
 
@@ -299,7 +299,7 @@ namespace VKBot_nordciti.Services
                     foreach (var tariff in tariffs)
                     {
                         string emoji = tariff.Price > 2000 ? "💎" : tariff.Price > 1000 ? "⭐" : "🎫";
-                        text += $"{emoji} *{tariff.Name}*: {tariff.Price}₽\n";
+                        text += $"{emoji} {tariff.Name}: {tariff.Price}₽\n";
                     }
 
                     text += $"\n💡 Примечания:\n";
@@ -308,7 +308,7 @@ namespace VKBot_nordciti.Services
                     text += $"• VIP билеты включают дополнительные услуги\n";
                 }
 
-                text += $"\n\n🔗 *Купить онлайн:* yes35.ru";
+                text += $"\n\n🔗 Купить онлайн: yes35.ru";
 
                 return text;
             }
