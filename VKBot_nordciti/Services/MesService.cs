@@ -106,7 +106,7 @@ namespace VKBot_nordciti.Services
                  "🚀 ЧТОБЫ НАЧАТЬ, ПРОСТО НАЖМИТЕ КНОПКУ \"🎯 НАЧАТЬ\" НИЖЕ!\n\n" +
                  "✨ Желаю вам незабываемого отдыха, наполненного яркими эмоциями и приятными впечатлениями!";
 
-            await SendMessage(userId, welcomeText, _kb.StartKeyboard());
+            await SendMessage(userId, welcomeText, _kb.MainMenu());
         }
 
         private async Task HandleIdleState(long peerId, long userId, string text)
