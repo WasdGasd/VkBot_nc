@@ -4,6 +4,7 @@
 		<TargetFramework>net8.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<OutputType>Library</OutputType>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -16,8 +17,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!-- Ссылка на второй проект -->
-		<ProjectReference Include="..\VKBot_nordciti\VKBot_nordciti.csproj" />
+	  <Folder Include="Properties\" />
 	</ItemGroup>
 
 </Project>

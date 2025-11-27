@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using VKBD_nc.Data;
+using VKBot_nordciti.Data;
 using VKBot_nordciti.Services;
 using VKBot_nordciti.VK;
 

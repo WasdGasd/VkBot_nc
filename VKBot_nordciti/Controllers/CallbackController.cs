@@ -3,7 +3,7 @@ using VKBot_nordciti.Services;
 using VKBot_nordciti.VK.Models;
 using System.Text.Json;
 
-namespace VKBD_nc.Controllers
+namespace VKBot_nordciti.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]

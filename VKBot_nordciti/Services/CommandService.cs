@@ -1,6 +1,8 @@
 ﻿using System.Net.Http.Json;
 using System.Text.Json;
 using VKBot_nordciti.Models;
+using VKBot_nordciti.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace VKBot_nordciti.Services
 {
@@ -9,12 +11,14 @@ namespace VKBot_nordciti.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly KeyboardProvider _kb;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly BotDbContext _botDbContext;
 
-        public CommandService(IHttpClientFactory httpClientFactory, KeyboardProvider kb)
+        public CommandService(IHttpClientFactory httpClientFactory, KeyboardProvider kb, BotDbContext botDbContext)
         {
             _httpClientFactory = httpClientFactory;
             _kb = kb;
             _jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            _botDbContext = botDbContext;
         }
 
         public async Task<Command?> FindCommandAsync(string messageText)
@@ -29,13 +33,11 @@ namespace VKBot_nordciti.Services
 
         public async Task<string> ProcessCommandAsync(Command command, Dictionary<string, string>? parameters = null)
         {
-            return command.CommandType.ToLower() switch
-            {
-                "api_park_load" => await GetParkLoadAsync(),
-                "api_sessions" => await GetSessionsAsync(parameters),
-                "api_tariffs" => await GetTariffsAsync(parameters),
-                _ => command.Response
-            };
+            //Не потерять 
+            var commanditem = await _botDbContext.Commands.FirstOrDefaultAsync(i => i.Name == command.CommandType.ToLower());
+
+            return commanditem.Response;
+
         }
 
         public async Task<List<SessionInfo>> GetSessionsListAsync(string date)
