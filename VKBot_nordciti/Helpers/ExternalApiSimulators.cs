@@ -1,4 +1,4 @@
-﻿using VKBot_nordciti.Services;
+using VKBot_nordciti.Services;
 
 namespace VKBot_nordciti.Helpers
 {
@@ -59,7 +59,7 @@ namespace VKBot_nordciti.Helpers
                     _ => "🟢 Есть места"
                 };
 
-                text += $"⏰ *{session.Time}*\n";
+                text += $"⏰ {session.Time}\n";
                 text += $"   Свободно: {session.Free}/{session.Total} мест\n";
                 text += $"   {availability}\n\n";
             }
@@ -71,7 +71,7 @@ namespace VKBot_nordciti.Helpers
         {
             string categoryTitle = category == "adult" ? "👤 ВЗРОСЛЫЕ БИЛЕТЫ" : "👶 ДЕТСКИЕ БИЛЕТЫ";
 
-            var text = $"🎟 *{categoryTitle}*\n";
+            var text = $"🎟 {categoryTitle}\n";
             text += $"⏰ Сеанс: {sessionTime}\n";
             text += $"📅 Дата: {date}\n\n";
             text += "💰 Стоимость билетов:\n\n";
