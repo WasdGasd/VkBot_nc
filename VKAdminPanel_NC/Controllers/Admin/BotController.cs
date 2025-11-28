@@ -1,23 +1,43 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 
-[Route("admin/bot")]
-public class BotController : Controller
+namespace VKAdminPanel_NC.Controllers
 {
-    private readonly BotStateService _bot;
-
-    public BotController(BotStateService bot)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class BotController : ControllerBase
     {
-        _bot = bot;
+        private readonly BotStateService _bot;
+
+        public BotController(BotStateService bot)
+        {
+            _bot = bot;
+        }
+
+        [HttpGet("status")]
+        public IActionResult GetStatus()
+        {
+            return Ok(new { enabled = _bot.Enabled });
+        }
+
+        [HttpPost("enable")]
+        public IActionResult Enable()
+        {
+            _bot.Enable();
+            return Ok(new { message = "Bot enabled" });
+        }
+
+        [HttpPost("disable")]
+        public IActionResult Disable()
+        {
+            _bot.Disable();
+            return Ok(new { message = "Bot disabled" });
+        }
+
+        [HttpPost("restart")]
+        public IActionResult Restart()
+        {
+            _bot.Restart();
+            return Ok(new { message = "Bot restarted" });
+        }
     }
-
-    public IActionResult Index() => View(_bot);
-
-    [HttpPost("enable")]
-    public IActionResult Enable() { _bot.Enable(); return RedirectToAction("Index"); }
-
-    [HttpPost("disable")]
-    public IActionResult Disable() { _bot.Disable(); return RedirectToAction("Index"); }
-
-    [HttpPost("restart")]
-    public IActionResult Restart() { _bot.Restart(); return RedirectToAction("Index"); }
 }

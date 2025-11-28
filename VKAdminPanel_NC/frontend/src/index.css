@@ -1,0 +1,228 @@
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #f8f9fa;
+    transition: all 0.3s ease;
+}
+
+code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* ===== ТЕМНАЯ ТЕМА ===== */
+.dark-theme {
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #2d2d2d;
+    --bg-card: #3d3d3d;
+    --text-primary: #ffffff;
+    --text-secondary: #b0b0b0;
+    --border-color: #404040;
+    --shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.light-theme {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-card: #ffffff;
+    --text-primary: #2c3e50;
+    --text-secondary: #7f8c8d;
+    --border-color: #e0e0e0;
+    --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Применяем CSS переменные ко всему приложению */
+.dark-theme body {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.light-theme body {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+/* Стили для карточек */
+.stat-card,
+.dashboard-section,
+.commands-container,
+.logs-container {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* Стили для таблиц */
+.dark-theme table {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.dark-theme th {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+.dark-theme td {
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+.dark-theme tr:hover {
+    background: var(--bg-secondary) !important;
+}
+
+/* Стили для форм */
+.dark-theme input,
+.dark-theme textarea,
+.dark-theme select {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+    .dark-theme input::placeholder,
+    .dark-theme textarea::placeholder {
+        color: var(--text-secondary) !important;
+    }
+
+/* Стили для кнопок */
+.dark-theme button {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+    .dark-theme button:disabled {
+        opacity: 0.6 !important;
+        cursor: not-allowed !important;
+    }
+
+/* Стили для навигации */
+.dark-theme .sidebar {
+    background: #2c3e50 !important;
+}
+
+    .dark-theme .sidebar a {
+        color: #bdc3c7 !important;
+    }
+
+        .dark-theme .sidebar a:hover {
+            background: #34495e !important;
+        }
+
+/* Стили для графиков */
+.dark-theme .chart-container {
+    background: var(--bg-card) !important;
+}
+
+/* Стили для логов */
+.dark-theme .log-entry {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* Стили для уведомлений */
+.dark-theme .notification {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* ===== ОБЩИЕ СТИЛИ ===== */
+
+/* Скрываем скроллбар но оставляем функциональность */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.dark-theme ::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+    background: #555;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: #777;
+}
+
+/* Анимации */
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Утилитарные классы */
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 200px !important;
+    }
+
+    .main-content {
+        margin-left: 200px !important;
+        width: calc(100% - 200px) !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .sidebar {
+        width: 60px !important;
+    }
+
+    .main-content {
+        margin-left: 60px !important;
+        width: calc(100% - 60px) !important;
+    }
+
+    .sidebar span:not(.icon) {
+        display: none;
+    }
+}

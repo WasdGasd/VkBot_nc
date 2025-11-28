@@ -1,55 +1,64 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using VKBot_nordciti.Models;
 using VKBot_nordciti.Data;
 
-[Route("admin/commands")]
-public class CommandsController : Controller
+namespace VKAdminPanel_NC.Controllers
 {
-    private readonly BotDbContext _db;
-
-    public CommandsController(BotDbContext db)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class CommandsController : ControllerBase
     {
-        _db = db;
-    }
+        private readonly BotDbContext _db;
 
-    [HttpGet("")]
-    public async Task<IActionResult> Index()
-    {
-        var commands = await _db.Commands.ToListAsync();
-        return View(commands);
-    }
+        public CommandsController(BotDbContext db)
+        {
+            _db = db;
+        }
 
-    [HttpGet("create")]
-    public IActionResult Create() => View();
+        [HttpGet]
+        public async Task<IActionResult> GetCommands()
+        {
+            var commands = await _db.Commands.ToListAsync();
+            return Ok(commands);
+        }
 
-    [HttpPost("create")]
-    public async Task<IActionResult> Create(Command cmd)
-    {
-        _db.Commands.Add(cmd);
-        await _db.SaveChangesAsync();
-        return RedirectToAction("Index");
-    }
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetCommand(int id)
+        {
+            var command = await _db.Commands.FindAsync(id);
+            if (command == null) return NotFound();
+            return Ok(command);
+        }
 
-    [HttpGet("edit/{id}")]
-    public async Task<IActionResult> Edit(int id)
-    {
-        var cmd = await _db.Commands.FindAsync(id);
-        return View(cmd);
-    }
+        [HttpPost]
+        public async Task<IActionResult> CreateCommand([FromBody] VKBot_nordciti.Models.Command command)
+        {
+            _db.Commands.Add(command);
+            await _db.SaveChangesAsync();
+            return CreatedAtAction(nameof(GetCommand), new { id = command.Id }, command);
+        }
 
-    [HttpPost("edit/{id}")]
-    public async Task<IActionResult> Edit(Command cmd)
-    {
-        _db.Commands.Update(cmd);
-        await _db.SaveChangesAsync();
-        return RedirectToAction("Index");
-    }
 
-    [HttpGet("delete/{id}")]
-    public async Task<IActionResult> Delete(int id)
-    {
-        var cmd = await _db.Commands.FindAsync(id);
-        _db.Commands.Remove(cmd);
-        await _db.SaveChangesAsync();
-        return RedirectToAction("Index");
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateCommand(int id, [FromBody] VKBot_nordciti.Models.Command command)
+        {
+            if (id != command.Id) return BadRequest();
+
+            _db.Commands.Update(command);
+            await _db.SaveChangesAsync();
+            return NoContent();
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCommand(int id)
+        {
+            var command = await _db.Commands.FindAsync(id);
+            if (command == null) return NotFound();
+
+            _db.Commands.Remove(command);
+            await _db.SaveChangesAsync();
+            return NoContent();
+        }
     }
 }

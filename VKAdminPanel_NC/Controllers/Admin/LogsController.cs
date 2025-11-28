@@ -1,20 +1,23 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using VKAdminPanel_NC.Services;
 
-[Route("admin/logs")]
-public class LogsController : Controller
+namespace VKAdminPanel_NC.Controllers
 {
-    private readonly LogsService _logs;
-
-    public LogsController(LogsService logs)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class LogsController : ControllerBase
     {
-        _logs = logs;
-    }
+        private readonly LogsService _logs;
 
-    [HttpGet("")]
-    public IActionResult Index()
-    {
-        var lines = _logs.ReadLastLines(200);
-        return View(lines);
+        public LogsController(LogsService logs)
+        {
+            _logs = logs;
+        }
+
+        [HttpGet]
+        public IActionResult GetLogs([FromQuery] int count = 200)
+        {
+            var lines = _logs.ReadLastLines(count);
+            return Ok(lines);
+        }
     }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "vk-admin-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "chart.js": "^4.0.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.0.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "eslint": "^9.39.1",
+    "vite": "^4.0.0"
+  }
+}

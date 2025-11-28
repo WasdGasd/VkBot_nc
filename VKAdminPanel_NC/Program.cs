@@ -1,15 +1,19 @@
+using VKAdminPanel_NC.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Регистрируем сервисы
+builder.Services.AddSingleton<BotStateService>();
+builder.Services.AddSingleton<LogsService>();
+builder.Services.AddSingleton<SimpleStatsService>();
+builder.Services.AddScoped<StatsService>();
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -17,9 +21,14 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
-
 app.MapControllers();
 
+app.UseCors(policy => policy
+    .AllowAnyOrigin()
+    .AllowAnyMethod()
+    .AllowAnyHeader());
+
 app.Run();
+// Добавьте эту строку чтобы приложение не закрывалось
+Thread.Sleep(Timeout.Infinite);
