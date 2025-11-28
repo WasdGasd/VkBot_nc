@@ -8,20 +8,22 @@ namespace VKBot_nordciti.Services
 
         public string StartKeyboard() => JsonSerializer.Serialize(new
         {
-            one_time = true,
+            one_time = false,
+            inline = false,
             buttons = new[]
-            {
-                new[] {
-                    new {
-                        action = new {
-                            type = "text",
-                            label = "🎯 НАЧАТЬ"
-                        },
-                        color = "positive"
-                    }
-                }
+    {
+        new[] {
+            new {
+                action = new {
+                    type = "text",
+                    label = "🎯 НАЧАТЬ"
+                },
+                color = "positive"
             }
+        }
+    }
         }, _opts);
+
 
         public string MainMenu() => JsonSerializer.Serialize(new
         {

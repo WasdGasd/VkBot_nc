@@ -152,6 +152,13 @@ namespace VKBot_nordciti.Services
             }
 
             await SendMessage(peerId, "Я вас не понял 😊\n\nВыберите пункт меню или напишите 'помощь'", _kb.MainMenu());
+            if (text.Contains("🎯") || text.ToLower().Contains("начат"))
+            {
+                _state.SetState(userId, ConversationState.Idle);
+                await SendMessage(peerId, "Выберите раздел 👇", _kb.MainMenu());
+                return;
+            }
+
         }
 
         private async Task HandleDateSelection(long peerId, long userId, string text)
