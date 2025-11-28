@@ -1,0 +1,17 @@
+﻿<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<canvas id="messagesChart"></canvas>
+
+<script>
+    var ctx = document.getElementById('messagesChart');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: @Html.Raw(Json.Serialize(Model.Dates)),
+            datasets: [{
+                label: 'Сообщений',
+                data: @Html.Raw(Json.Serialize(Model.Messages))
+            }]
+        }
+    });
+</script>
