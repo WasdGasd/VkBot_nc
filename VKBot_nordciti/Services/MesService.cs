@@ -221,7 +221,7 @@ namespace VKBot_nordciti.Services
                 var (tariffsText, tariffsKeyboard) = await GetFormattedTariffsAsync(date, session, category);
 
                 _state.SetState(userId, ConversationState.WaitingForPayment);
-                await SendMessage(peerId, tariffsText, tariffsKeyboard);
+                await SendMessage(peerId, tariffsText, _kb.PaymentKeyboard());
             }
             else if (text.Contains("🔙") || text.ToLower().Contains("назад"))
             {
