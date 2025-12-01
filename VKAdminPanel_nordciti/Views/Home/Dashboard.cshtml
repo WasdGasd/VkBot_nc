@@ -1,0 +1,95 @@
+﻿@{
+    ViewData["Title"] = "Статистика";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>📊 Статистика бота</h2>
+    <button onclick="loadStats()" class="btn btn-primary">🔄 Обновить</button>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Статистика вертикально -->
+        <div class="stat-card bg-primary">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>👥 Всего пользователей</h5>
+                    <h3 id="totalUsers">0</h3>
+                </div>
+                <span class="fs-1">👥</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-success">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>🟢 Активных пользователей</h5>
+                    <h3 id="activeUsers">0</h3>
+                </div>
+                <span class="fs-1">🟢</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-info">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>💬 Сообщений сегодня</h5>
+                    <h3 id="messagesToday">0</h3>
+                </div>
+                <span class="fs-1">💬</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-warning">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>🟡 Онлайн сейчас</h5>
+                    <h3 id="onlineUsers">0</h3>
+                </div>
+                <span class="fs-1">🟡</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <!-- Быстрые действия -->
+        <div class="card">
+            <div class="card-header">
+                <h5>⚡ Быстрые действия</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-outline-primary w-100 mb-2" onclick="location.href='/broadcast'">
+                    📢 Создать рассылку
+                </button>
+                <button class="btn btn-outline-success w-100 mb-2">
+                    📊 Подробная статистика
+                </button>
+                <button class="btn btn-outline-info w-100">
+                    📝 Экспорт данных
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+
+                document.getElementById('totalUsers').textContent = stats.totalUsers;
+                document.getElementById('activeUsers').textContent = stats.activeUsers;
+                document.getElementById('messagesToday').textContent = stats.messagesToday;
+                document.getElementById('onlineUsers').textContent = stats.onlineUsers || 0;
+
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Загружаем статистику при загрузке страницы
+        document.addEventListener('DOMContentLoaded', loadStats);
+    </script>
+}

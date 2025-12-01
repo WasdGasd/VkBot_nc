@@ -1,0 +1,187 @@
+﻿@{
+    ViewData["Title"] = "Настройки";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>⚙️ Настройки бота</h2>
+    <div>
+        <button class="btn btn-primary" onclick="saveSettings()">💾 Сохранить настройки</button>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <!-- Основные настройки -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>🔧 Основные настройки</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Название бота:</label>
+                    <input type="text" class="form-control" id="botName" value="Мой VK Бот">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Токен VK API:</label>
+                    <input type="password" class="form-control" id="vkToken" placeholder="Введите токен...">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">ID группы:</label>
+                    <input type="text" class="form-control" id="groupId" value="123456789">
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="autoStart" checked>
+                    <label class="form-check-label" for="autoStart">Автозапуск бота</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Настройки уведомлений -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>🔔 Уведомления</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="notifyNewUsers" checked>
+                    <label class="form-check-label" for="notifyNewUsers">Уведомлять о новых пользователях</label>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="notifyErrors" checked>
+                    <label class="form-check-label" for="notifyErrors">Уведомлять об ошибках</label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Email для уведомлений:</label>
+                    <input type="email" class="form-control" id="notifyEmail" placeholder="email@example.com">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <!-- Настройки сообщений -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>💬 Настройки сообщений</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Приветственное сообщение:</label>
+                    <textarea class="form-control" id="welcomeMessage" rows="3">Добро пожаловать! 👋</textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Сообщение помощи:</label>
+                    <textarea class="form-control" id="helpMessage" rows="3">Для получения помощи введите /help</textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Лимит сообщений в час:</label>
+                    <input type="number" class="form-control" id="messageLimit" value="100" min="1" max="1000">
+                </div>
+            </div>
+        </div>
+
+        <!-- Опасная зона -->
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5>⚠️ Опасная зона</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <p class="text-muted">Эти действия нельзя отменить</p>
+                    <button class="btn btn-outline-danger w-100 mb-2" onclick="clearDatabase()">
+                        🗑️ Очистить базу данных
+                    </button>
+                    <button class="btn btn-outline-danger w-100 mb-2" onclick="resetSettings()">
+                        🔄 Сбросить настройки
+                    </button>
+                    <button class="btn btn-outline-danger w-100" onclick="stopBot()">
+                        🛑 Остановить бота
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статус бота -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>📊 Статус системы</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Статус бота:</strong>
+                    <span class="badge bg-success" id="botStatus">🟢 Запущен</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Версия:</strong>
+                    <span id="botVersion">1.0.0</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Время работы:</strong>
+                    <span id="uptime">2 дня 5 часов</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Последнее обновление:</strong>
+                    <span id="lastUpdate">15.01.2024 14:30</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function saveSettings() {
+            const settings = {
+                botName: document.getElementById('botName').value,
+                vkToken: document.getElementById('vkToken').value,
+                groupId: document.getElementById('groupId').value,
+                autoStart: document.getElementById('autoStart').checked,
+                notifyNewUsers: document.getElementById('notifyNewUsers').checked,
+                notifyErrors: document.getElementById('notifyErrors').checked,
+                notifyEmail: document.getElementById('notifyEmail').value,
+                welcomeMessage: document.getElementById('welcomeMessage').value,
+                helpMessage: document.getElementById('helpMessage').value,
+                messageLimit: document.getElementById('messageLimit').value
+            };
+
+            // Здесь будет отправка настроек на сервер
+            console.log('Сохранение настроек:', settings);
+            alert('✅ Настройки сохранены!');
+        }
+
+        function clearDatabase() {
+            if (confirm('⚠️ Вы уверены что хотите очистить базу данных? Это действие нельзя отменить!')) {
+                if (confirm('❌ Действительно очистить? Все данные пользователей будут удалены!')) {
+                    alert('🗑️ База данных очищена');
+                }
+            }
+        }
+
+        function resetSettings() {
+            if (confirm('⚠️ Сбросить все настройки к значениям по умолчанию?')) {
+                alert('🔄 Настройки сброшены');
+            }
+        }
+
+        function stopBot() {
+            if (confirm('⚠️ Остановить бота? Он перестанет отвечать на сообщения.')) {
+                alert('🛑 Бот остановлен');
+                document.getElementById('botStatus').className = 'badge bg-danger';
+                document.getElementById('botStatus').textContent = '🔴 Остановлен';
+            }
+        }
+
+        // Загружаем текущие настройки при открытии страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Здесь будет загрузка текущих настроек с сервера
+            console.log('Загрузка настроек...');
+        });
+    </script>
+}
