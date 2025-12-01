@@ -1,0 +1,408 @@
+﻿@{
+    ViewData["Title"] = "Пользователи";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>👥 Пользователи бота</h2>
+    <div>
+        <button onclick="loadUsers()" class="btn btn-primary">🔄 Обновить</button>
+        <button class="btn btn-success" onclick="exportUsersToExcel()">📊 Экспорт в Excel</button>
+    </div>
+</div>
+
+<!-- Фильтры и поиск -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <input type="text" id="searchInput" class="form-control" placeholder="🔍 Поиск по имени или ID...">
+            </div>
+            <div class="col-md-3">
+                <select id="statusFilter" class="form-select">
+                    <option value="all">Все статусы</option>
+                    <option value="active">🟢 Активные</option>
+                    <option value="inactive">⚪ Неактивные</option>
+                    <option value="banned">🔴 Заблокированные</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select id="sortBy" class="form-select">
+                    <option value="newest">Сначала новые</option>
+                    <option value="oldest">Сначала старые</option>
+                    <option value="name">По имени</option>
+                    <option value="activity">По активности</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Статистика пользователей -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h5>Всего</h5>
+                <h3 id="totalUsersCount">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h5>Активных</h5>
+                <h3 id="activeUsersCount">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body text-center">
+                <h5>Новых сегодня</h5>
+                <h3 id="newTodayCount">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h5>Онлайн</h5>
+                <h3 id="onlineUsersCount">0</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Таблица пользователей -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Список пользователей</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Пользователь</th>
+                        <th>Статус</th>
+                        <th>Последняя активность</th>
+                        <th>Сообщений</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTable">
+                    <tr>
+                        <td colspan="6" class="text-center">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <nav>
+            <ul class="pagination justify-content-center" id="pagination">
+                <li class="page-item disabled">
+                    <a class="page-link" href="#">Назад</a>
+                </li>
+                <li class="page-item active">
+                    <a class="page-link" href="#">1</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="#">Вперед</a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+</div>
+
+<!-- Подключаем библиотеку SheetJS для работы с Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+@section Scripts {
+    <script>
+        // Заглушка данных пользователей
+        const demoUsers = [
+            {
+                id: 1,
+                name: "Иван Иванов",
+                status: "active",
+                statusText: "Активен",
+                lastActivity: "2024-01-15 14:30",
+                messageCount: 156,
+                avatar: "👤",
+                registrationDate: "2024-01-10",
+                email: "ivan@example.com",
+                phone: "+7 (123) 456-78-90",
+                location: "Москва"
+            },
+            {
+                id: 2,
+                name: "Мария Петрова",
+                status: "active",
+                statusText: "Активна",
+                lastActivity: "2024-01-15 13:45",
+                messageCount: 89,
+                avatar: "👩",
+                registrationDate: "2024-01-12",
+                email: "maria@example.com",
+                phone: "+7 (987) 654-32-10",
+                location: "Санкт-Петербург"
+            },
+            {
+                id: 3,
+                name: "Алексей Сидоров",
+                status: "inactive",
+                statusText: "Неактивен",
+                lastActivity: "2024-01-14 10:20",
+                messageCount: 45,
+                avatar: "👨",
+                registrationDate: "2024-01-05",
+                email: "alexey@example.com",
+                phone: "+7 (555) 123-45-67",
+                location: "Казань"
+            },
+            {
+                id: 4,
+                name: "Елена Козлова",
+                status: "active",
+                statusText: "Активна",
+                lastActivity: "2024-01-15 15:10",
+                messageCount: 234,
+                avatar: "👩",
+                registrationDate: "2024-01-08",
+                email: "elena@example.com",
+                phone: "+7 (999) 888-77-66",
+                location: "Новосибирск"
+            },
+            {
+                id: 5,
+                name: "Дмитрий Новиков",
+                status: "banned",
+                statusText: "Заблокирован",
+                lastActivity: "2024-01-10 09:15",
+                messageCount: 12,
+                avatar: "👤",
+                registrationDate: "2024-01-03",
+                email: "dmitry@example.com",
+                phone: "+7 (111) 222-33-44",
+                location: "Екатеринбург"
+            }
+        ];
+
+        // Глобальная переменная для хранения всех пользователей
+        let allUsers = [];
+
+        function loadUsers() {
+            // Обновляем статистику
+            document.getElementById('totalUsersCount').textContent = '150';
+            document.getElementById('activeUsersCount').textContent = '23';
+            document.getElementById('newTodayCount').textContent = '5';
+            document.getElementById('onlineUsersCount').textContent = '12';
+
+            // Заполняем таблицу демо-данными
+            const tableBody = document.getElementById('usersTable');
+            tableBody.innerHTML = '';
+
+            demoUsers.forEach(user => {
+                const row = document.createElement('tr');
+
+                let statusBadge = '';
+                if (user.status === 'active') {
+                    statusBadge = '<span class="badge bg-success">🟢 Активен</span>';
+                } else if (user.status === 'inactive') {
+                    statusBadge = '<span class="badge bg-secondary">⚪ Неактивен</span>';
+                } else {
+                    statusBadge = '<span class="badge bg-danger">🔴 Заблокирован</span>';
+                }
+
+                row.innerHTML = `
+                    <td>${user.id}</td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <span class="fs-4 me-2">${user.avatar}</span>
+                            <div>
+                                <strong>${user.name}</strong><br>
+                                <small class="text-muted">ID: ${user.id}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${statusBadge}</td>
+                    <td>${user.lastActivity}</td>
+                    <td>${user.messageCount}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewUser(${user.id})">
+                            👁️ Просмотр
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" onclick="sendMessage(${user.id})">
+                            💬 Сообщение
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            // Обновляем список всех пользователей
+            allUsers = [...demoUsers];
+        }
+
+        function viewUser(userId) {
+            alert(`Просмотр пользователя ID: ${userId}`);
+        }
+
+        function sendMessage(userId) {
+            const message = prompt('Введите сообщение для пользователя:');
+            if (message) {
+                alert(`Сообщение отправлено пользователю ID: ${userId}\nТекст: ${message}`);
+            }
+        }
+
+        // Функция для экспорта в Excel
+        function exportUsersToExcel() {
+            if (allUsers.length === 0) {
+                alert('Нет данных для экспорта');
+                return;
+            }
+
+            // Подготовка данных для Excel
+            const excelData = allUsers.map(user => ({
+                'ID': user.id,
+                'Имя': user.name,
+                'Статус': user.statusText,
+                'Последняя активность': user.lastActivity,
+                'Количество сообщений': user.messageCount,
+                'Дата регистрации': user.registrationDate,
+                'Email': user.email || '',
+                'Телефон': user.phone || '',
+                'Город': user.location || ''
+            }));
+
+            // Создаем новый рабочий лист
+            const ws = XLSX.utils.json_to_sheet(excelData);
+
+            // Настраиваем ширину колонок
+            const wscols = [
+                { wch: 5 },   // ID
+                { wch: 20 },  // Имя
+                { wch: 15 },  // Статус
+                { wch: 20 },  // Последняя активность
+                { wch: 10 },  // Сообщений
+                { wch: 15 },  // Дата регистрации
+                { wch: 25 },  // Email
+                { wch: 20 },  // Телефон
+                { wch: 15 }   // Город
+            ];
+            ws['!cols'] = wscols;
+
+            // Добавляем стили для заголовков (жирный шрифт)
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const address = XLSX.utils.encode_cell({ r: 0, c: C });
+                if (!ws[address]) continue;
+                ws[address].s = {
+                    font: {
+                        bold: true,
+                        color: { rgb: "FFFFFF" }
+                    },
+                    fill: {
+                        fgColor: { rgb: "4472C4" }
+                    },
+                    alignment: {
+                        horizontal: "center",
+                        vertical: "center"
+                    }
+                };
+            }
+
+            // Добавляем чередование цветов строк
+            for (let R = 1; R <= range.e.r; ++R) {
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                    const address = XLSX.utils.encode_cell({ r: R, c: C });
+                    if (!ws[address]) continue;
+                    ws[address].s = {
+                        fill: {
+                            fgColor: { rgb: R % 2 === 0 ? "E9EBF5" : "FFFFFF" }
+                        },
+                        alignment: {
+                            vertical: "center"
+                        }
+                    };
+                }
+            }
+
+            // Создаем новую книгу
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Пользователи");
+
+            // Добавляем лист с информацией
+            const infoData = [
+                ['Отчет по пользователям бота'],
+                ['Дата создания:', new Date().toLocaleString()],
+                ['Всего пользователей:', allUsers.length],
+                ['Активных:', allUsers.filter(u => u.status === 'active').length],
+                ['Неактивных:', allUsers.filter(u => u.status === 'inactive').length],
+                ['Заблокированных:', allUsers.filter(u => u.status === 'banned').length],
+                [''],
+                ['Статистика экспорта'],
+                ['Файл содержит подробную информацию о пользователях бота.']
+            ];
+
+            const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
+            const infoCols = [
+                { wch: 25 },
+                { wch: 30 }
+            ];
+            wsInfo['!cols'] = infoCols;
+
+            // Стили для информационного листа
+            wsInfo['A1'].s = { font: { bold: true, sz: 16 } };
+            wsInfo['A8'].s = { font: { bold: true } };
+
+            XLSX.utils.book_append_sheet(wb, wsInfo, "Информация");
+
+            // Генерируем имя файла с датой
+            const fileName = `Пользователи_бота_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+            // Сохраняем файл
+            XLSX.writeFile(wb, fileName);
+
+            // Показываем уведомление
+            showNotification(`✅ Экспортировано ${allUsers.length} пользователей в файл ${fileName}`, 'success');
+        }
+
+        // Функция для показа уведомлений
+        function showNotification(message, type = 'info') {
+            // Создаем элемент уведомления
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                min-width: 300px;
+            `;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            // Добавляем на страницу
+            document.body.appendChild(notification);
+
+            // Автоматически скрываем через 5 секунд
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+
+        // Загружаем пользователей при открытии страницы
+        document.addEventListener('DOMContentLoaded', loadUsers);
+
+        // Поиск пользователей
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            console.log('Поиск:', e.target.value);
+        });
+    </script>
+}

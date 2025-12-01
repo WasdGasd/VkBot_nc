@@ -1,0 +1,73 @@
+﻿@{
+    ViewData["Title"] = "Рассылка";
+}
+
+<h2>📢 Рассылка сообщений</h2>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="broadcastMessage" class="form-label">Сообщение для рассылки:</label>
+            <textarea id="broadcastMessage" class="form-control" rows="6"
+                      placeholder="Введите сообщение которое будет отправлено всем пользователям..."></textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Получатели:</label>
+            <div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="recipients" id="allUsers" checked>
+                    <label class="form-check-label" for="allUsers">
+                        📨 Все пользователи (150 чел.)
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="recipients" id="activeUsers">
+                    <label class="form-check-label" for="activeUsers">
+                        🟢 Только активные (23 чел.)
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <button onclick="sendBroadcast()" class="btn btn-warning btn-lg">
+            📢 Отправить рассылку
+        </button>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        async function sendBroadcast() {
+            const message = document.getElementById('broadcastMessage').value;
+            if (!message) {
+                alert('Пожалуйста, введите сообщение');
+                return;
+            }
+
+            if (!confirm('Вы уверены что хотите отправить рассылку?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/broadcast', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                if (response.ok) {
+                    alert('✅ Рассылка отправлена!');
+                    document.getElementById('broadcastMessage').value = '';
+                } else {
+                    alert('❌ Ошибка отправки рассылки');
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('❌ Ошибка отправки рассылки');
+            }
+        }
+    </script>
+}

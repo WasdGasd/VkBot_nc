@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="AdminPanel/AdminPanel.csproj" />
+  <Project Path="VKBD_nc/VKBD_nc.csproj" Id="a97dbc0f-ece2-4141-959b-9ba982138d9b" />
+  <Project Path="VKBot_nordciti/VKBot_nordciti.csproj" />
+</Solution>

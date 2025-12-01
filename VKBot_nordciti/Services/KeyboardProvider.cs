@@ -1,0 +1,98 @@
+﻿using System.Text.Json;
+
+namespace VKBot_nordciti.Services
+{
+    public class KeyboardProvider
+    {
+        private readonly JsonSerializerOptions _opts = new() { PropertyNamingPolicy = null };
+
+        public string StartKeyboard() => JsonSerializer.Serialize(new
+        {
+            one_time = false,
+            inline = false,
+            buttons = new[]
+    {
+        new[] {
+            new {
+                action = new {
+                    type = "text",
+                    label = "🎯 НАЧАТЬ"
+                },
+                color = "positive"
+            }
+        }
+    }
+        }, _opts);
+
+
+        public string MainMenu() => JsonSerializer.Serialize(new
+        {
+            one_time = false,
+            buttons = new[]
+            {
+                new[] {
+                    new { action = new { type = "text", label = "📅 Билеты" }, color = "primary" },
+                    new { action = new { type = "text", label = "ℹ️ Информация" }, color = "secondary" }
+                },
+                new[] { new { action = new { type = "text", label = "📊 Загруженность" }, color = "positive" } }
+            }
+        }, _opts);
+
+        public string TicketCategoryKeyboard() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[]
+            {
+                new[] { new { action = new { type = "text", label = "👤 Взрослые" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "👶 Детские" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
+            }
+        }, _opts);
+
+        public string PaymentKeyboard() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[]
+            {
+                new[] { new { action = new { type = "text", label = "💳 Оплатить" }, color = "positive" } },
+                new[] { new { action = new { type = "text", label = "🔙 Назад" }, color = "negative" } }
+            }
+        }, _opts);
+
+        public string InfoMenu() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[]
+            {
+                new[] { new { action = new { type = "text", label = "🕒 Время работы" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "📞 Контакты" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "📍 Как добраться" }, color = "primary" } },
+                new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } }
+            }
+        }, _opts);
+
+        public string BackToMain() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } } }
+        }, _opts);
+
+        public string BackToInfo() => JsonSerializer.Serialize(new
+        {
+            one_time = true,
+            buttons = new[] { new[] { new { action = new { type = "text", label = "🔙 К информации" }, color = "secondary" } } }
+        }, _opts);
+
+        public string TicketsDateKeyboard()
+        {
+            var buttons = new List<object[]>();
+            for (int i = 0; i < 3; i++)
+            {
+                var date = DateTime.Now.AddDays(i).ToString("dd.MM.yyyy");
+                buttons.Add(new object[] { new { action = new { type = "text", label = $"📅 {date}" }, color = "primary" } });
+            }
+            buttons.Add(new object[] { new { action = new { type = "text", label = "🔙 Главное меню" }, color = "negative" } });
+            return JsonSerializer.Serialize(new { one_time = true, buttons = buttons.ToArray() }, _opts);
+        }
+    }
+}
