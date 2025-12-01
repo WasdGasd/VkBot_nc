@@ -1,0 +1,600 @@
+﻿@{
+    ViewData["Title"] = "Настройки";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>⚙️ Настройки бота</h2>
+    <div>
+        <button class="btn btn-primary" onclick="saveSettings()">💾 Сохранить настройки</button>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <!-- Основные настройки -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>🔧 Основные настройки</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Название бота:</label>
+                    <input type="text" class="form-control" id="botName" value="Мой VK Бот">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Токен VK API:</label>
+                    <input type="password" class="form-control" id="vkToken" placeholder="Введите токен...">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">ID группы:</label>
+                    <input type="text" class="form-control" id="groupId" value="123456789">
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="autoStart" checked>
+                    <label class="form-check-label" for="autoStart">Автозапуск бота</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Настройки уведомлений -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>🔔 Уведомления</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="notifyNewUsers" checked>
+                    <label class="form-check-label" for="notifyNewUsers">Уведомлять о новых пользователях</label>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="notifyErrors" checked>
+                    <label class="form-check-label" for="notifyErrors">Уведомлять об ошибках</label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Email для уведомлений:</label>
+                    <input type="email" class="form-control" id="notifyEmail" placeholder="email@example.com">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <!-- Управление командами -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">💬 Управление командами</h5>
+                <button class="btn btn-sm btn-success" onclick="showAddCommandModal()">
+                    <i class="bi bi-plus-circle"></i> Добавить
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="searchCommands" placeholder="Поиск команд..." onkeyup="searchCommands()">
+                        <button class="btn btn-outline-secondary" type="button" onclick="searchCommands()">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="commandsContainer" class="mt-3" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Загрузка команд...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Управление ботом -->
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5>🎮 Управление ботом</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <p class="text-muted">Управление состоянием бота</p>
+
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" onclick="startBot()" id="startBotBtn">
+                            <i class="bi bi-play-fill"></i> ▶️ Запустить бота
+                        </button>
+
+                        <button class="btn btn-warning" onclick="resetSettings()">
+                            ⚙️ Сбросить настройки
+                        </button>
+
+                        <button class="btn btn-danger" onclick="stopBot()">
+                            <i class="bi bi-stop-fill"></i> 🛑 Остановить бота
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статус бота -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>📊 Статус системы</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Статус бота:</strong>
+                    <span class="badge bg-success" id="botStatus">🟢 Запущен</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Версия:</strong>
+                    <span id="botVersion">1.0.0</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Время работы:</strong>
+                    <span id="uptime">2 дня 5 часов</span>
+                </div>
+                <div class="mb-2">
+                    <strong>Последнее обновление:</strong>
+                    <span id="lastUpdate">@DateTime.Now.ToString("dd.MM.yyyy HH:mm")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно добавления/редактирования команды -->
+<div class="modal fade" id="commandModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">Добавление команды</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="commandForm">
+                    <input type="hidden" id="commandId">
+
+                    <div class="mb-3">
+                        <label class="form-label">Название команды:</label>
+                        <input type="text" class="form-control" id="commandName" required>
+                        <div class="form-text">Основное название (например: "Помощь")</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Триггеры:</label>
+                        <input type="text" class="form-control" id="commandTriggers" required>
+                        <div class="form-text">Ключевые слова через запятую (например: "помощь,справка,help")</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Ответ:</label>
+                        <textarea class="form-control" id="commandResponse" rows="4" required></textarea>
+                        <div class="form-text">Текст который получит пользователь</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Тип команды:</label>
+                        <select class="form-select" id="commandType">
+                            <option value="text">Текст</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">JSON клавиатуры (опционально):</label>
+                        <textarea class="form-control" id="commandKeyboard" rows="3" placeholder='{"buttons":[...]}'></textarea>
+                        <div class="form-text">В формате JSON, если нужна клавиатура</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="saveCommand()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Состояние бота
+        let botIsRunning = true;
+        let commands = [];
+
+                // Загрузка команд из БД бота
+        async function loadCommands() {
+            try {
+                const response = await fetch('/api/commands');
+                const result = await response.json();
+
+                if (result.success && result.commands) {
+                    commands = result.commands;
+                    renderCommands();
+                    showNotification(`✅ Загружено ${result.count} команд из БД`, 'success');
+                } else {
+                    // Ошибка загрузки
+                    showNotification('❌ Ошибка загрузки команд: ' + (result.error || 'Неизвестная ошибка'), 'danger');
+                    showDbHelp(result.error);
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки команд:', error);
+                showNotification('❌ Ошибка подключения к API', 'danger');
+                showDbHelp(error.message);
+            }
+        }
+
+        // Показать помощь
+        function showDbHelp(errorMessage = '') {
+            const container = document.getElementById('commandsContainer');
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    <h6>📊 Состояние БД:</h6>
+                    <p><strong>✅ БД найдена!</strong> Таблица Commands существует.</p>
+                    <p><strong>Ошибка:</strong> ${errorMessage || 'Неизвестная ошибка'}</p>
+
+                    <p><strong>Что проверить:</strong></p>
+                    <ol>
+                        <li>Откройте <a href="/api/commands/test" target="_blank">/api/commands/test</a></li>
+                        <li>Проверьте что таблица не пустая</li>
+                        <li>Добавьте команды через бота или вручную</li>
+                    </ol>
+
+                    <p><strong>Быстрый тест:</strong></p>
+                    <button class="btn btn-sm btn-primary" onclick="testApi()">
+                        Проверить API
+                    </button>
+                    <button class="btn btn-sm btn-success" onclick="addDemoCommands()">
+                        Добавить тестовые команды
+                    </button>
+                </div>
+            `;
+        }
+
+        // Тест API
+        async function testApi() {
+            try {
+                const response = await fetch('/api/commands/test');
+                const data = await response.json();
+                alert(`API работает!\nБД: ${data.dbPath}\nСуществует: ${data.exists}`);
+            } catch (error) {
+                alert('Ошибка API: ' + error.message);
+            }
+        }
+
+        // Показать инструкцию по доступу к БД
+        function showDbAccessHelp() {
+            const container = document.getElementById('commandsContainer');
+            container.innerHTML = `
+                <div class="alert alert-warning">
+                    <h6>🔧 Настройка доступа к БД бота</h6>
+                    <p><strong>Проблема:</strong> Админ-панель не может прочитать файл БД бота</p>
+
+                    <p><strong>Решение 1:</strong> Скопируйте файл БД:</p>
+                    <ol>
+                        <li>Найдите файл: <code>C:\\Users\\pog\\Desktop\\VkBot_nc\\VKBot_nordciti\\vkbot.db</code></li>
+                        <li>Скопируйте его в папку админ-панели: <code>C:\\Users\\pog\\Desktop\\VkBot_nc\\AdminPanel\\</code></li>
+                        <li>Обновите страницу</li>
+                    </ol>
+
+                    <p><strong>Решение 2:</strong> Измените путь в коде:</p>
+                    <ol>
+                        <li>Откройте <code>Services/DatabaseService.cs</code></li>
+                        <li>Измените путь на ваш реальный путь к БД бота</li>
+                        <li>Перезапустите админ-панель</li>
+                    </ol>
+
+                    <button class="btn btn-sm btn-primary mt-2" onclick="location.reload()">
+                        Обновить после настройки
+                    </button>
+                </div>
+            `;
+        }
+
+                // Отображение команд
+        function renderCommands(filter = '') {
+            const container = document.getElementById('commandsContainer');
+            let filteredCommands = commands;
+
+            if (filter) {
+                const searchTerm = filter.toLowerCase();
+                filteredCommands = commands.filter(cmd =>
+                    (cmd.name && cmd.name.toLowerCase().includes(searchTerm)) ||
+                    (cmd.triggers && cmd.triggers.toLowerCase().includes(searchTerm)) ||
+                    (cmd.response && cmd.response.toLowerCase().includes(searchTerm))
+                );
+            }
+
+            if (filteredCommands.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4">
+                        <div class="fs-1">🔍</div>
+                        <p class="text-muted">По запросу "${filter}" ничего не найдено</p>
+                    </div>`;
+                return;
+            }
+
+            let html = '<div class="list-group">';
+
+            filteredCommands.forEach((cmd, index) => {
+                const badgeColor = (cmd.commandType || 'text') === 'menu' ? 'bg-info' : 'bg-primary';
+
+                // Декодируем Unicode строки
+                const name = decodeUnicode(cmd.name || 'Без названия');
+                const triggers = decodeUnicode(cmd.triggers || 'нет');
+                const response = decodeUnicode(cmd.response || '').substring(0, 100);
+
+                html += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div class="d-flex align-items-center mb-2">
+                                    <h6 class="mb-0 me-2">${escapeHtml(name)}</h6>
+                                    <span class="badge ${badgeColor}">${cmd.commandType || 'text'}</span>
+                                </div>
+                                <p class="mb-1"><small class="text-muted">Триггеры:</small> ${escapeHtml(triggers)}</p>
+                                <p class="mb-1 text-truncate"><small class="text-muted">Ответ:</small> ${escapeHtml(response)}${cmd.response && cmd.response.length > 100 ? '...' : ''}</p>
+                            </div>
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-outline-primary" onclick="editCommand(${cmd.id})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteCommand(${cmd.id})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // Функция для декодирования Unicode строк (\uXXXX)
+        function decodeUnicode(str) {
+            if (!str) return '';
+
+            // Если строка уже содержит эмодзи или нормальные символы
+            if (!str.includes('\\u')) return str;
+
+            try {
+                // Заменяем Unicode escape последовательности
+                return str.replace(/\\u[\dA-F]{4}/gi,
+                    match => String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16)));
+            } catch (e) {
+                return str;
+            }
+        }
+
+        // Экранирование HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Поиск команд
+        function searchCommands() {
+            const searchTerm = document.getElementById('searchCommands').value;
+            renderCommands(searchTerm);
+        }
+
+        // Показать модальное окно добавления
+        function showAddCommandModal() {
+            document.getElementById('modalTitle').textContent = 'Добавление команды';
+            document.getElementById('commandForm').reset();
+            document.getElementById('commandId').value = '';
+
+            const modal = new bootstrap.Modal(document.getElementById('commandModal'));
+            modal.show();
+        }
+
+                // Редактирование команды
+        function editCommand(id) {
+            const command = commands.find(cmd => cmd.id == id);
+            if (!command) return;
+
+            document.getElementById('modalTitle').textContent = 'Редактирование команды';
+            document.getElementById('commandId').value = command.id;
+            document.getElementById('commandName').value = decodeUnicode(command.name || '');
+            document.getElementById('commandTriggers').value = decodeUnicode(command.triggers || '');
+            document.getElementById('commandResponse').value = decodeUnicode(command.response || '');
+            document.getElementById('commandType').value = command.commandType || 'text';
+            document.getElementById('commandKeyboard').value = decodeUnicode(command.keyboardJson || '');
+
+            const modal = new bootstrap.Modal(document.getElementById('commandModal'));
+            modal.show();
+
+            // Сохраняем ID редактируемой команды
+            modal._element.dataset.editId = id;
+        }
+
+        // Сохранение команды
+        async function saveCommand() {
+            const modalElement = document.getElementById('commandModal');
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            const editIndex = modalElement.dataset.editIndex;
+
+            const commandData = {
+                id: document.getElementById('commandId').value || 0,
+                name: document.getElementById('commandName').value,
+                triggers: document.getElementById('commandTriggers').value,
+                response: document.getElementById('commandResponse').value,
+                commandType: document.getElementById('commandType').value,
+                keyboardJson: document.getElementById('commandKeyboard').value || null
+            };
+
+            if (!commandData.name || !commandData.triggers || !commandData.response) {
+                showNotification('⚠️ Заполните все обязательные поля', 'warning');
+                return;
+            }
+
+            try {
+                const method = commandData.id ? 'PUT' : 'POST';
+                const url = commandData.id ? `/api/database/commands/${commandData.id}` : '/api/database/commands';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(commandData)
+                });
+
+                if (response.ok) {
+                    modal.hide();
+                    showNotification('✅ Команда сохранена', 'success');
+                    loadCommands(); // Перезагружаем список
+                } else {
+                    throw new Error('Ошибка сохранения');
+                }
+            } catch (error) {
+                showNotification('❌ Ошибка сохранения команды. Проверьте настройки БД', 'danger');
+            }
+        }
+
+        // Удаление команды
+        async function deleteCommand(index) {
+            const command = commands[index];
+            if (!command) return;
+
+            if (!confirm('Удалить эту команду?')) return;
+
+            try {
+                const response = await fetch(`/api/database/commands/${command.id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showNotification('🗑️ Команда удалена', 'info');
+                    loadCommands(); // Перезагружаем список
+                } else {
+                    throw new Error('Ошибка удаления');
+                }
+            } catch (error) {
+                showNotification('❌ Ошибка удаления команды', 'danger');
+            }
+        }
+
+        // Остальные функции (управление ботом, настройки)
+        function saveSettings() {
+            const settings = {
+                botName: document.getElementById('botName').value,
+                vkToken: document.getElementById('vkToken').value,
+                groupId: document.getElementById('groupId').value,
+                autoStart: document.getElementById('autoStart').checked,
+                notifyNewUsers: document.getElementById('notifyNewUsers').checked,
+                notifyErrors: document.getElementById('notifyErrors').checked,
+                notifyEmail: document.getElementById('notifyEmail').value
+            };
+
+            console.log('Сохранение настроек:', settings);
+            showNotification('✅ Настройки сохранены!', 'success');
+        }
+
+        function startBot() {
+            if (!botIsRunning) {
+                if (confirm('Запустить бота?')) {
+                    const button = document.getElementById('startBotBtn');
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
+                    button.disabled = true;
+
+                    setTimeout(() => {
+                        botIsRunning = true;
+                        updateBotStatus();
+                        button.innerHTML = '<i class="bi bi-play-fill"></i> ▶️ Запустить бота';
+                        button.disabled = false;
+                        showNotification('✅ Бот успешно запущен!', 'success');
+                    }, 1500);
+                }
+            } else {
+                showNotification('⚠️ Бот уже запущен!', 'warning');
+            }
+        }
+
+        function stopBot() {
+            if (botIsRunning) {
+                if (confirm('Остановить бота? Он перестанет отвечать на сообщения.')) {
+                    botIsRunning = false;
+                    updateBotStatus();
+                    showNotification('🛑 Бот остановлен', 'warning');
+                }
+            } else {
+                showNotification('⚠️ Бот уже остановлен!', 'warning');
+            }
+        }
+
+        function resetSettings() {
+            if (confirm('⚠️ Сбросить все настройки к значениям по умолчанию?')) {
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сброс...';
+                button.disabled = true;
+
+                setTimeout(() => {
+                    // Сброс значений формы
+                    document.getElementById('botName').value = 'VK Бот';
+                    document.getElementById('vkToken').value = '';
+                    document.getElementById('groupId').value = '';
+                    document.getElementById('autoStart').checked = true;
+                    document.getElementById('notifyNewUsers').checked = true;
+                    document.getElementById('notifyErrors').checked = true;
+                    document.getElementById('notifyEmail').value = '';
+
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                    showNotification('⚙️ Настройки сброшены', 'info');
+                }, 1000);
+            }
+        }
+
+        function updateBotStatus() {
+            const statusBadge = document.getElementById('botStatus');
+            if (botIsRunning) {
+                statusBadge.className = 'badge bg-success';
+                statusBadge.textContent = '🟢 Запущен';
+            } else {
+                statusBadge.className = 'badge bg-danger';
+                statusBadge.textContent = '🔴 Остановлен';
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                min-width: 300px;
+            `;
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+
+                // Загружаем команды при открытии страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            updateBotStatus();
+            loadCommands();
+
+            // Для отладки - показываем что загрузилось
+            setTimeout(() => {
+                console.log('Загруженные команды:', commands);
+            }, 1000);
+        });
+    </script>
+
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+}

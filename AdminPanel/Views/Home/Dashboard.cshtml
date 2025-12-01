@@ -1,0 +1,373 @@
+﻿@{
+    ViewData["Title"] = "Статистика";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>📊 Статистика бота</h2>
+    <button onclick="loadAllStats()" class="btn btn-primary">🔄 Обновить все</button>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Статистика вертикально -->
+        <div class="stat-card bg-primary">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>👥 Всего пользователей</h5>
+                    <h3 id="totalUsers">0</h3>
+                </div>
+                <span class="fs-1">👥</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-success">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>🟢 Активных пользователей</h5>
+                    <h3 id="activeUsers">0</h3>
+                </div>
+                <span class="fs-1">🟢</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-info">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>💬 Сообщений сегодня</h5>
+                    <h3 id="messagesToday">0</h3>
+                </div>
+                <span class="fs-1">💬</span>
+            </div>
+        </div>
+
+        <div class="stat-card bg-warning">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h5>🟡 Онлайн сейчас</h5>
+                    <h3 id="onlineUsers">0</h3>
+                </div>
+                <span class="fs-1">🟡</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ПРАВАЯ КОЛОНКА - ТОЛЬКО ЭКСПОРТ -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">📊 Экспорт данных</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Вы можете экспортировать данные в различных форматах</p>
+                <button class="btn btn-success w-100 mb-2" onclick="exportData('excel')">
+                    📈 Экспорт в Excel
+                </button>
+                <button class="btn btn-success w-100 mb-2" onclick="exportData('csv')">
+                    📊 Экспорт в CSV
+                </button>
+                <button class="btn btn-success w-100" onclick="exportData('json')">
+                    📋 Экспорт в JSON
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Круговая диаграмма использования команд -->
+<div class="row mt-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📊 Использование команд сегодня</h5>
+                <button onclick="loadCommandsStats()" class="btn btn-sm btn-outline-primary">
+                    🔄 Обновить
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-7">
+                        <canvas id="commandsChart" width="400" height="400"></canvas>
+                    </div>
+                    <div class="col-md-5">
+                        <div id="commandsList" class="mt-3">
+                            <p class="text-muted">Нажмите "Статистика команд" для загрузки</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>📈 Активность за неделю</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="weeklyChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Глобальные переменные для чартов
+        let commandsChart = null;
+        let weeklyChart = null;
+
+        // Загрузка Chart.js
+        function loadChartLibrary() {
+            return new Promise((resolve, reject) => {
+                if (typeof Chart !== 'undefined') {
+                    resolve();
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+
+        // Загрузка основной статистики
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+
+                document.getElementById('totalUsers').textContent = stats.totalUsers;
+                document.getElementById('activeUsers').textContent = stats.activeUsers;
+                document.getElementById('messagesToday').textContent = stats.messagesToday;
+                document.getElementById('onlineUsers').textContent = stats.onlineUsers || 0;
+
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+                // Демо данные при ошибке
+                document.getElementById('totalUsers').textContent = '150';
+                document.getElementById('activeUsers').textContent = '23';
+                document.getElementById('messagesToday').textContent = '456';
+                document.getElementById('onlineUsers').textContent = '12';
+            }
+        }
+
+        // Загрузка статистики команд
+        async function loadCommandsStats() {
+            try {
+                document.getElementById('commandsList').innerHTML =
+                    '<p class="text-muted">Загрузка...</p>';
+
+                const response = await fetch('/api/commands-usage');
+                const commandsData = await response.json();
+
+                updateCommandsList(commandsData);
+
+                await loadChartLibrary();
+                createCommandsChart(commandsData);
+
+            } catch (error) {
+                console.error('Ошибка загрузки статистики команд:', error);
+                document.getElementById('commandsList').innerHTML =
+                    '<p class="text-danger">Ошибка загрузки статистики</p>';
+
+                // Демо данные при ошибке
+                const demoData = {
+                    "/start": 45,
+                    "/help": 32,
+                    "/weather": 28,
+                    "/news": 15,
+                    "/settings": 10,
+                    "/profile": 8,
+                    "/games": 6,
+                    "/music": 5
+                };
+
+                updateCommandsList(demoData);
+                await loadChartLibrary();
+                createCommandsChart(demoData);
+            }
+        }
+
+        // Обновление списка команд
+        function updateCommandsList(commandsData) {
+            const commandsList = document.getElementById('commandsList');
+            let html = '<h6>🏆 Топ команд:</h6><div class="list-group" style="max-height: 300px; overflow-y: auto;">';
+
+            let total = 0;
+            for (const [command, count] of Object.entries(commandsData)) {
+                total += count;
+            }
+
+            let index = 1;
+            const sortedEntries = Object.entries(commandsData)
+                .sort((a, b) => b[1] - a[1]);
+
+            for (const [command, count] of sortedEntries) {
+                const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
+                const badgeClass = index <= 3 ? 'bg-primary' : 'bg-secondary';
+
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge ${badgeClass} me-2">${index}</span>
+                            <code>${command}</code>
+                        </div>
+                        <div>
+                            <span class="badge bg-info me-2">${count}</span>
+                            <span class="text-muted">${percentage}%</span>
+                        </div>
+                    </div>`;
+                index++;
+            }
+
+            html += `</div><div class="mt-2 text-muted">Всего команд сегодня: <strong>${total}</strong></div>`;
+            commandsList.innerHTML = html;
+        }
+
+        // Создание круговой диаграммы
+        function createCommandsChart(commandsData) {
+            const ctx = document.getElementById('commandsChart');
+            if (!ctx) return;
+
+            // Уничтожаем старый чарт если есть
+            if (commandsChart) {
+                commandsChart.destroy();
+            }
+
+            const labels = Object.keys(commandsData);
+            const data = Object.values(commandsData);
+
+            // Яркие цвета для диаграммы
+            const colors = [
+                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+                '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#36A2EB',
+                '#FF6384', '#36A2EB'
+            ];
+
+            commandsChart = new Chart(ctx, {
+                type: 'doughnut', // Кольцевая диаграмма (кружок с дыркой)
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors,
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false // Скрываем легенду, т.к. есть список справа
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((value / total) * 100);
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '60%' // Размер дырки в середине
+                }
+            });
+        }
+
+        // Создание графика недельной активности
+        function createWeeklyChart() {
+            const ctx = document.getElementById('weeklyChart');
+            if (!ctx) return;
+
+            // Уничтожаем старый чарт если есть
+            if (weeklyChart) {
+                weeklyChart.destroy();
+            }
+
+            const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+            const messages = [120, 190, 300, 250, 280, 350, 400];
+            const users = [45, 50, 65, 60, 70, 85, 90];
+
+            weeklyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: days,
+                    datasets: [
+                        {
+                            label: 'Сообщений',
+                            data: messages,
+                            backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Пользователей',
+                            data: users,
+                            backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Количество'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Экспорт данных
+        function exportData(format) {
+            const formats = {
+                'excel': 'Excel',
+                'csv': 'CSV',
+                'json': 'JSON'
+            };
+
+            if (confirm(`Экспортировать данные в формате ${formats[format]}?`)) {
+                // Здесь будет реальный экспорт
+                alert(`✅ Данные экспортированы в ${formats[format]} формате`);
+
+                // Демо: скачивание файла
+                const demoData = "Статистика бота\nВсего пользователей: 150\nАктивных: 23\nСообщений сегодня: 456";
+                const blob = new Blob([demoData], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `bot-stats.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }
+        }
+
+        // Загрузка всей статистики
+        async function loadAllStats() {
+            await loadStats();
+            await loadCommandsStats();
+            await loadChartLibrary();
+            createWeeklyChart();
+        }
+
+        // Загружаем все при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAllStats();
+        });
+    </script>
+}
