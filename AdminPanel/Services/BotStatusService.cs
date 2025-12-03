@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Net.Http;
 using AdminPanel.Configs;
+using System.Text;
 
 namespace AdminPanel.Services
 {
@@ -617,6 +618,200 @@ namespace AdminPanel.Services
             catch (Exception ex)
             {
                 return BotCommandResult.FailResult($"Ошибка проверки соединения: {ex.Message}");
+            }
+        }
+
+        // ==================== БЕЗОПАСНЫЕ МЕТОДЫ УПРАВЛЕНИЯ ====================
+
+        public async Task<BotCommandResult> SafeStartBotAsync()
+        {
+            _logger.LogInformation("Безопасный запуск бота...");
+
+            try
+            {
+                // Проверяем текущий статус
+                var currentStatus = await GetBotStatusAsync();
+
+                if (currentStatus.OverallStatus == "running")
+                {
+                    return BotCommandResult.FailResult("Бот уже запущен и работает");
+                }
+
+                // Проверяем, не находится ли бот в состоянии запуска
+                if (currentStatus.HasLockFile && currentStatus.OverallStatus == "starting")
+                {
+                    // Если есть lock файл и статус starting, ждем завершения
+                    _logger.LogInformation("Бот находится в состоянии запуска, ожидаем...");
+                    await Task.Delay(5000);
+
+                    // Проверяем снова
+                    currentStatus = await GetBotStatusAsync();
+                    if (currentStatus.OverallStatus == "running")
+                    {
+                        return BotCommandResult.FailResult("Бот запустился во время ожидания");
+                    }
+                }
+
+                // Удаляем старый lock файл если есть
+                try
+                {
+                    var lockFilePath = _botPaths.BotLockFilePath;
+                    if (File.Exists(lockFilePath))
+                    {
+                        var fileAge = DateTime.Now - File.GetLastWriteTime(lockFilePath);
+                        if (fileAge.TotalMinutes > 10) // Старый lock файл (больше 10 минут)
+                        {
+                            File.Delete(lockFilePath);
+                            _logger.LogDebug("Удален устаревший lock файл");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Не удалось обработать lock файл");
+                }
+
+                // Запускаем бота
+                return await StartBotAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при безопасном запуске бота");
+                return BotCommandResult.FailResult($"Ошибка безопасного запуска: {ex.Message}");
+            }
+        }
+
+        public async Task<BotCommandResult> SafeStopBotAsync(bool graceful = true, int timeoutSeconds = 30)
+        {
+            _logger.LogInformation("Безопасная остановка бота (graceful: {Graceful})", graceful);
+
+            try
+            {
+                var currentStatus = await GetBotStatusAsync();
+
+                if (!currentStatus.ProcessInfo.IsRunning)
+                {
+                    return BotCommandResult.FailResult("Бот не запущен");
+                }
+
+                // Если graceful и API доступен, пытаемся отправить сигнал завершения
+                if (graceful && currentStatus.ApiStatus.IsResponding)
+                {
+                    try
+                    {
+                        var gracefulResult = await TryGracefulShutdownAsync(timeoutSeconds);
+                        if (gracefulResult.Success)
+                        {
+                            return BotCommandResult.SuccessResult("Бот успешно остановлен (graceful shutdown)");
+                        }
+
+                        _logger.LogWarning("Graceful shutdown не удался, используем force stop");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Ошибка graceful shutdown, используем force stop");
+                    }
+                }
+
+                // Force stop
+                return await StopBotAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при безопасной остановке бота");
+                return BotCommandResult.FailResult($"Ошибка безопасной остановки: {ex.Message}");
+            }
+        }
+
+        private async Task<BotCommandResult> TryGracefulShutdownAsync(int timeoutSeconds)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+                var response = await httpClient.PostAsync(
+                    $"{_botApiUrl}/api/admin/shutdown",
+                    new StringContent("{}", Encoding.UTF8, "application/json"));
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Graceful shutdown signal sent successfully");
+
+                    // Ждем завершения процесса
+                    await WaitForProcessExitAsync(timeoutSeconds);
+
+                    // Удаляем lock файл
+                    await DeleteLockFileAsync();
+
+                    ClearCache();
+
+                    return BotCommandResult.SuccessResult("Graceful shutdown completed");
+                }
+
+                return BotCommandResult.FailResult($"Graceful shutdown failed: {response.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                return BotCommandResult.FailResult($"Graceful shutdown error: {ex.Message}");
+            }
+        }
+
+        private async Task WaitForProcessExitAsync(int timeoutSeconds)
+        {
+            var processId = -1;
+            try
+            {
+                var processes = Process.GetProcessesByName(_botProcessName);
+                if (processes.Length > 0)
+                {
+                    processId = processes[0].Id;
+
+                    var startTime = DateTime.Now;
+                    while ((DateTime.Now - startTime).TotalSeconds < timeoutSeconds)
+                    {
+                        try
+                        {
+                            var process = Process.GetProcessById(processId);
+                            if (process.HasExited)
+                            {
+                                _logger.LogInformation("Процесс {ProcessId} завершился", processId);
+                                return;
+                            }
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Процесс не найден - значит завершился
+                            _logger.LogInformation("Процесс {ProcessId} завершился", processId);
+                            return;
+                        }
+
+                        await Task.Delay(1000);
+                    }
+
+                    _logger.LogWarning("Таймаут ожидания завершения процесса {ProcessId}", processId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Ошибка при ожидании завершения процесса {ProcessId}", processId);
+            }
+        }
+
+        private async Task DeleteLockFileAsync()
+        {
+            try
+            {
+                var lockFilePath = _botPaths.BotLockFilePath;
+                if (File.Exists(lockFilePath))
+                {
+                    File.Delete(lockFilePath);
+                    _logger.LogDebug("Lock файл удален: {Path}", lockFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Не удалось удалить lock файл");
             }
         }
 
