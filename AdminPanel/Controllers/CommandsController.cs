@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Options;
+using AdminPanel.Services;
 using AdminPanel.Models;
+using BotSettingsDto = AdminPanel.Services.BotSettingsDto;
 
 namespace AdminPanel.Controllers
 {
@@ -9,149 +9,131 @@ namespace AdminPanel.Controllers
     [Route("api/[controller]")]
     public class CommandsController : ControllerBase
     {
-        private readonly string _dbPath;
+        private readonly DatabaseService _dbService;
+        private readonly BotStatusService _botStatusService;
         private readonly ILogger<CommandsController> _logger;
-        private readonly IConfiguration _configuration;
 
         public CommandsController(
-            IConfiguration configuration,
-            ILogger<CommandsController> logger,
-            IOptions<DatabaseConfig> dbSettings)
+            DatabaseService dbService,
+            BotStatusService botStatusService,
+            ILogger<CommandsController> logger)
         {
-            _configuration = configuration;
+            _dbService = dbService;
+            _botStatusService = botStatusService;
             _logger = logger;
-            // Путь к БД бота в другом проекте
-            _dbPath = dbSettings.Value.ConnectionString ??
-                @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
         }
 
         // GET: api/commands
         [HttpGet]
-        public async Task<IActionResult> GetCommands([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        public async Task<IActionResult> GetCommands(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string search = "")
         {
-            _logger.LogInformation("Получение команд, страница {Page}, размер {PageSize}", page, pageSize);
+            _logger.LogInformation("GET /api/commands?page={Page}&pageSize={PageSize}&search={Search}",
+                page, pageSize, search);
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var commands = await _dbService.GetCommandsAsync(page, pageSize, search);
+                var totalCount = await _dbService.GetCommandsCountAsync(search);
+
+                var response = new
                 {
-                    _logger.LogWarning("Файл БД не найден: {DbPath}", _dbPath);
-                    return NotFound(new ApiResponse(false, "Файл базы данных не найден", new
+                    success = true,
+                    message = "Команды успешно загружены",
+                    data = new
                     {
-                        dbPath = _dbPath,
-                        dbExists = false
-                    }));
-                }
-
-                var commands = new List<Command>();
-                int totalCount = 0;
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=true"))
-                {
-                    await connection.OpenAsync();
-
-                    // Получаем общее количество
-                    var countCommand = new SqliteCommand("SELECT COUNT(*) FROM Commands", connection);
-                    totalCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
-
-                    // Получаем данные с пагинацией
-                    var queryCommand = new SqliteCommand(
-                        "SELECT * FROM Commands ORDER BY Id LIMIT @Limit OFFSET @Offset",
-                        connection);
-
-                    queryCommand.Parameters.AddWithValue("@Limit", pageSize);
-                    queryCommand.Parameters.AddWithValue("@Offset", (page - 1) * pageSize);
-
-                    await using (var reader = await queryCommand.ExecuteReaderAsync())
-                    {
-                        while (await reader.ReadAsync())
+                        commands,
+                        pagination = new
                         {
-                            var command = new Command
-                            {
-                                Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
-                                Name = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                Triggers = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Response = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                KeyboardJson = reader.IsDBNull(4) ? null : reader.GetString(4),
-                                CommandType = reader.IsDBNull(5) ? "text" : reader.GetString(5),
-                                CreatedAt = reader.IsDBNull(6) ? DateTime.MinValue : reader.GetDateTime(6)
-                            };
-                            commands.Add(command);
-                        }
-                    }
-                }
-
-                _logger.LogInformation("Загружено {Count} команд", commands.Count);
-
-                return Ok(new ApiResponse(true, "Команды успешно загружены", new
-                {
-                    commands,
-                    pagination = new
-                    {
-                        page,
-                        pageSize,
-                        totalCount,
-                        totalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+                            page,
+                            pageSize,
+                            totalCount,
+                            totalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+                        },
+                        searchTerm = search
                     },
-                    dbPath = _dbPath,
-                    dbExists = true
-                }));
+                    timestamp = DateTime.UtcNow
+                };
+
+                return Ok(response);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("не найдена") ||
+                                                      ex.Message.Contains("не существует"))
+            {
+                _logger.LogWarning(ex, "Таблица команд не найдена");
+
+                return Ok(new
+                {
+                    success = false,
+                    message = "Таблица команд не найдена. Нажмите 'Создать таблицу' для инициализации базы данных.",
+                    data = new
+                    {
+                        commands = new List<Command>(),
+                        pagination = new
+                        {
+                            page,
+                            pageSize,
+                            totalCount = 0,
+                            totalPages = 0
+                        }
+                    },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при получении команд");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при получении команд", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка загрузки команд: {ex.Message}",
+                    data = new { error = ex.ToString() },
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
         // GET: api/commands/{id}
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetCommand(int id)
         {
-            _logger.LogInformation("Получение команды с ID {Id}", id);
+            _logger.LogInformation("GET /api/commands/{Id}", id);
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var command = await _dbService.GetCommandByIdAsync(id);
+
+                if (command == null)
                 {
-                    return NotFound(new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-                    var command = new SqliteCommand(
-                        "SELECT * FROM Commands WHERE Id = @Id",
-                        connection);
-
-                    command.Parameters.AddWithValue("@Id", id);
-
-                    await using (var reader = await command.ExecuteReaderAsync())
+                    return NotFound(new
                     {
-                        if (await reader.ReadAsync())
-                        {
-                            var cmd = new Command
-                            {
-                                Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
-                                Name = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                Triggers = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Response = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                KeyboardJson = reader.IsDBNull(4) ? null : reader.GetString(4),
-                                CommandType = reader.IsDBNull(5) ? "text" : reader.GetString(5),
-                                CreatedAt = reader.IsDBNull(6) ? DateTime.MinValue : reader.GetDateTime(6)
-                            };
-
-                            return Ok(new ApiResponse(true, "Команда найдена", cmd));
-                        }
-                    }
+                        success = false,
+                        message = $"Команда с ID {id} не найдена",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
 
-                return NotFound(new ApiResponse(false, $"Команда с ID {id} не найдена"));
+                return Ok(new
+                {
+                    success = true,
+                    message = "Команда найдена",
+                    data = command,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении команды {Id}", id);
-                return StatusCode(500, new ApiResponse(false, "Ошибка при получении команды", ex.Message));
+                _logger.LogError(ex, "Ошибка при получении команды ID {Id}", id);
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка загрузки команды: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -159,200 +141,208 @@ namespace AdminPanel.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateCommand([FromBody] CreateCommandRequest request)
         {
-            _logger.LogInformation("Создание новой команды: {Name}", request.Name);
+            _logger.LogInformation("POST /api/commands - создание команды: {Name}", request.Name);
 
             try
             {
                 // Валидация
                 if (string.IsNullOrWhiteSpace(request.Name))
                 {
-                    return BadRequest(new ApiResponse(false, "Название команды обязательно"));
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Название команды обязательно",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
 
                 if (string.IsNullOrWhiteSpace(request.Response))
                 {
-                    return BadRequest(new ApiResponse(false, "Текст ответа обязателен"));
-                }
-
-                if (!System.IO.File.Exists(_dbPath))
-                {
-                    return StatusCode(500, new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    // Проверяем уникальность имени
-                    var checkCommand = new SqliteCommand(
-                        "SELECT COUNT(*) FROM Commands WHERE LOWER(Name) = LOWER(@Name)",
-                        connection);
-                    checkCommand.Parameters.AddWithValue("@Name", request.Name.Trim());
-
-                    var count = Convert.ToInt64(await checkCommand.ExecuteScalarAsync());
-                    if (count > 0)
+                    return BadRequest(new
                     {
-                        return BadRequest(new ApiResponse(false, "Команда с таким именем уже существует"));
-                    }
-
-                    // Создаем команду
-                    var insertCommand = new SqliteCommand(@"
-                        INSERT INTO Commands (Name, Triggers, Response, KeyboardJson, CommandType, CreatedAt)
-                        VALUES (@Name, @Triggers, @Response, @KeyboardJson, @CommandType, datetime('now'))",
-                        connection);
-
-                    insertCommand.Parameters.AddWithValue("@Name", request.Name.Trim());
-                    insertCommand.Parameters.AddWithValue("@Triggers", request.Triggers?.Trim() ?? string.Empty);
-                    insertCommand.Parameters.AddWithValue("@Response", request.Response.Trim());
-                    insertCommand.Parameters.AddWithValue("@KeyboardJson",
-                        string.IsNullOrWhiteSpace(request.KeyboardJson) ? DBNull.Value : request.KeyboardJson);
-                    insertCommand.Parameters.AddWithValue("@CommandType",
-                        string.IsNullOrWhiteSpace(request.CommandType) ? "text" : request.CommandType.Trim());
-
-                    var rowsAffected = await insertCommand.ExecuteNonQueryAsync();
-
-                    if (rowsAffected > 0)
-                    {
-                        var getLastIdCommand = new SqliteCommand("SELECT last_insert_rowid()", connection);
-                        var newId = Convert.ToInt32(await getLastIdCommand.ExecuteScalarAsync());
-
-                        _logger.LogInformation("Создана команда {Name} с ID {Id}", request.Name, newId);
-
-                        return Ok(new ApiResponse(true, "Команда успешно создана", new { id = newId }));
-                    }
-
-                    return StatusCode(500, new ApiResponse(false, "Не удалось создать команду"));
+                        success = false,
+                        message = "Текст ответа обязателен",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
+
+                var command = new Command
+                {
+                    Name = request.Name,
+                    Triggers = request.Triggers ?? "",
+                    Response = request.Response,
+                    KeyboardJson = request.KeyboardJson,
+                    CommandType = request.CommandType ?? "text"
+                };
+
+                var id = await _dbService.AddCommandAsync(command);
+
+                _logger.LogInformation("Создана команда: {Name} (ID: {Id})", request.Name, id);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Команда успешно создана",
+                    data = new { id },
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("уже существует"))
+            {
+                _logger.LogWarning(ex, "Попытка создать дубликат команды");
+
+                return Conflict(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при создании команды");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при создании команды", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка создания команды: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
         // PUT: api/commands/{id}
-        [HttpPut("{id}")]
+        [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateCommand(int id, [FromBody] UpdateCommandRequest request)
         {
-            _logger.LogInformation("Обновление команды ID {Id}", id);
+            _logger.LogInformation("PUT /api/commands/{Id} - обновление команды", id);
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var existingCommand = await _dbService.GetCommandByIdAsync(id);
+                if (existingCommand == null)
                 {
-                    return StatusCode(500, new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = $"Команда с ID {id} не найдена",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
 
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+                // Обновляем только переданные поля
+                if (!string.IsNullOrWhiteSpace(request.Name))
+                    existingCommand.Name = request.Name;
+
+                if (request.Triggers != null)
+                    existingCommand.Triggers = request.Triggers;
+
+                if (!string.IsNullOrWhiteSpace(request.Response))
+                    existingCommand.Response = request.Response;
+
+                if (request.KeyboardJson != null)
+                    existingCommand.KeyboardJson = request.KeyboardJson;
+
+                if (!string.IsNullOrWhiteSpace(request.CommandType))
+                    existingCommand.CommandType = request.CommandType;
+
+                var success = await _dbService.UpdateCommandAsync(existingCommand);
+
+                if (!success)
                 {
-                    await connection.OpenAsync();
-
-                    // Проверяем существование команды
-                    var checkCommand = new SqliteCommand(
-                        "SELECT COUNT(*) FROM Commands WHERE Id = @Id",
-                        connection);
-                    checkCommand.Parameters.AddWithValue("@Id", id);
-
-                    var count = Convert.ToInt64(await checkCommand.ExecuteScalarAsync());
-                    if (count == 0)
+                    return StatusCode(500, new
                     {
-                        return NotFound(new ApiResponse(false, $"Команда с ID {id} не найдена"));
-                    }
-
-                    // Проверяем уникальность имени (если оно меняется)
-                    if (!string.IsNullOrWhiteSpace(request.Name))
-                    {
-                        var checkNameCommand = new SqliteCommand(
-                            "SELECT COUNT(*) FROM Commands WHERE LOWER(Name) = LOWER(@Name) AND Id != @Id",
-                            connection);
-                        checkNameCommand.Parameters.AddWithValue("@Name", request.Name.Trim());
-                        checkNameCommand.Parameters.AddWithValue("@Id", id);
-
-                        var nameCount = Convert.ToInt64(await checkNameCommand.ExecuteScalarAsync());
-                        if (nameCount > 0)
-                        {
-                            return BadRequest(new ApiResponse(false, "Команда с таким именем уже существует"));
-                        }
-                    }
-
-                    // Обновляем команду
-                    var updateCommand = new SqliteCommand(@"
-                        UPDATE Commands 
-                        SET Name = COALESCE(@Name, Name),
-                            Triggers = COALESCE(@Triggers, Triggers),
-                            Response = COALESCE(@Response, Response),
-                            KeyboardJson = @KeyboardJson,
-                            CommandType = COALESCE(@CommandType, CommandType)
-                        WHERE Id = @Id",
-                        connection);
-
-                    updateCommand.Parameters.AddWithValue("@Id", id);
-                    updateCommand.Parameters.AddWithValue("@Name",
-                        string.IsNullOrWhiteSpace(request.Name) ? DBNull.Value : request.Name.Trim());
-                    updateCommand.Parameters.AddWithValue("@Triggers",
-                        string.IsNullOrWhiteSpace(request.Triggers) ? DBNull.Value : request.Triggers.Trim());
-                    updateCommand.Parameters.AddWithValue("@Response",
-                        string.IsNullOrWhiteSpace(request.Response) ? DBNull.Value : request.Response.Trim());
-                    updateCommand.Parameters.AddWithValue("@KeyboardJson",
-                        string.IsNullOrWhiteSpace(request.KeyboardJson) ? DBNull.Value : request.KeyboardJson);
-                    updateCommand.Parameters.AddWithValue("@CommandType",
-                        string.IsNullOrWhiteSpace(request.CommandType) ? DBNull.Value : request.CommandType.Trim());
-
-                    var rowsAffected = await updateCommand.ExecuteNonQueryAsync();
-
-                    _logger.LogInformation("Обновлена команда ID {Id}, затронуто строк: {Rows}", id, rowsAffected);
-
-                    return Ok(new ApiResponse(true, "Команда успешно обновлена", new { rowsAffected }));
+                        success = false,
+                        message = "Не удалось обновить команду",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
+
+                _logger.LogInformation("Обновлена команда ID {Id}: {Name}", id, existingCommand.Name);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Команда успешно обновлена",
+                    data = new { id },
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("уже существует"))
+            {
+                _logger.LogWarning(ex, "Попытка переименовать команду в существующее имя");
+
+                return Conflict(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Команда не найдена при обновлении");
+
+                return NotFound(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при обновлении команды ID {Id}", id);
-                return StatusCode(500, new ApiResponse(false, "Ошибка при обновлении команды", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка обновления команды: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
         // DELETE: api/commands/{id}
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteCommand(int id)
         {
-            _logger.LogInformation("Удаление команды ID {Id}", id);
+            _logger.LogInformation("DELETE /api/commands/{Id}", id);
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var success = await _dbService.DeleteCommandAsync(id);
+
+                if (!success)
                 {
-                    return StatusCode(500, new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    // Получаем имя команды для логов
-                    var getCommand = new SqliteCommand("SELECT Name FROM Commands WHERE Id = @Id", connection);
-                    getCommand.Parameters.AddWithValue("@Id", id);
-                    var name = await getCommand.ExecuteScalarAsync() as string;
-
-                    var deleteCommand = new SqliteCommand("DELETE FROM Commands WHERE Id = @Id", connection);
-                    deleteCommand.Parameters.AddWithValue("@Id", id);
-
-                    var rowsAffected = await deleteCommand.ExecuteNonQueryAsync();
-
-                    if (rowsAffected > 0)
+                    return NotFound(new
                     {
-                        _logger.LogInformation("Удалена команда ID {Id}, имя: {Name}", id, name);
-                        return Ok(new ApiResponse(true, $"Команда '{name}' успешно удалена"));
-                    }
-
-                    return NotFound(new ApiResponse(false, $"Команда с ID {id} не найдена"));
+                        success = false,
+                        message = $"Команда с ID {id} не найдена",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
+
+                _logger.LogInformation("Удалена команда ID {Id}", id);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Команда успешно удалена",
+                    data = new { id },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при удалении команды ID {Id}", id);
-                return StatusCode(500, new ApiResponse(false, "Ошибка при удалении команды", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка удаления команды: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -360,35 +350,32 @@ namespace AdminPanel.Controllers
         [HttpDelete("clear")]
         public async Task<IActionResult> ClearCommands()
         {
-            _logger.LogInformation("Очистка всех команд");
+            _logger.LogInformation("DELETE /api/commands/clear - очистка всех команд");
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var count = await _dbService.ClearAllCommandsAsync();
+
+                _logger.LogInformation("Очищено команд: {Count}", count);
+
+                return Ok(new
                 {
-                    return StatusCode(500, new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    var command = new SqliteCommand("DELETE FROM Commands", connection);
-                    var rowsAffected = await command.ExecuteNonQueryAsync();
-
-                    // Сбрасываем автоинкремент
-                    var resetCommand = new SqliteCommand("DELETE FROM sqlite_sequence WHERE name='Commands'", connection);
-                    await resetCommand.ExecuteNonQueryAsync();
-
-                    _logger.LogInformation("Очищено команд: {Count}", rowsAffected);
-
-                    return Ok(new ApiResponse(true, $"Удалено {rowsAffected} команд", new { rowsAffected }));
-                }
+                    success = true,
+                    message = $"Удалено {count} команд",
+                    data = new { rowsAffected = count },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при очистке команд");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при очистке таблицы", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка очистки команд: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -396,141 +383,109 @@ namespace AdminPanel.Controllers
         [HttpGet("settings")]
         public async Task<IActionResult> GetSettings()
         {
-            _logger.LogInformation("Получение настроек бота");
+            _logger.LogInformation("GET /api/commands/settings");
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var settings = await _dbService.GetBotSettingsAsync();
+
+                return Ok(new
                 {
-                    return Ok(new ApiResponse(false, "Файл БД не найден"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    // Создаем таблицу настроек если не существует
-                    await CreateSettingsTableIfNotExists(connection);
-
-                    // Получаем настройки
-                    var getCmd = new SqliteCommand("SELECT * FROM BotSettings WHERE Id = 1", connection);
-
-                    await using (var reader = await getCmd.ExecuteReaderAsync())
-                    {
-                        if (await reader.ReadAsync())
-                        {
-                            var settings = new BotSettingsDto
-                            {
-                                Id = reader.GetInt32(0),
-                                BotName = reader.IsDBNull(1) ? "VK Бот" : reader.GetString(1),
-                                VkToken = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                GroupId = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                AutoStart = reader.IsDBNull(4) || reader.GetBoolean(4),
-                                NotifyNewUsers = reader.IsDBNull(5) || reader.GetBoolean(5),
-                                NotifyErrors = reader.IsDBNull(6) || reader.GetBoolean(6),
-                                NotifyEmail = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-                                LastUpdated = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8)
-                            };
-
-                            _logger.LogInformation("Настройки загружены: {BotName}", settings.BotName);
-
-                            return Ok(new ApiResponse(true, "Настройки загружены", settings));
-                        }
-                    }
-
-                    return Ok(new ApiResponse(false, "Настройки не найдены"));
-                }
+                    success = true,
+                    message = "Настройки загружены",
+                    data = settings,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при получении настроек");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при получении настроек", ex.Message));
+
+                return Ok(new
+                {
+                    success = false,
+                    message = $"Ошибка загрузки настроек: {ex.Message}",
+                    data = new AdminPanel.Models.BotSettingsDto
+                    {
+                        Id = 1,
+                        BotName = "VK Бот",
+                        VkToken = "",
+                        GroupId = "",
+                        AutoStart = true,
+                        NotifyNewUsers = true,
+                        NotifyErrors = true,
+                        NotifyEmail = "",
+                        LastUpdated = DateTime.Now
+                    },
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
         // POST: api/commands/settings
         [HttpPost("settings")]
-        public async Task<IActionResult> SaveSettings([FromBody] BotSettingsRequest request)
+        public async Task<IActionResult> SaveSettings([FromBody] BotSettingsDto request)
         {
-            _logger.LogInformation("Сохранение настроек бота");
+            _logger.LogInformation("POST /api/commands/settings - сохранение настроек");
 
             try
             {
                 // Валидация
                 if (string.IsNullOrWhiteSpace(request.BotName))
                 {
-                    return BadRequest(new ApiResponse(false, "Название бота обязательно"));
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Название бота обязательно",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
 
                 if (!string.IsNullOrEmpty(request.VkToken) && request.VkToken.Length < 20)
                 {
-                    return BadRequest(new ApiResponse(false, "Токен VK API должен быть не менее 20 символов"));
-                }
-
-                if (!System.IO.File.Exists(_dbPath))
-                {
-                    return StatusCode(500, new ApiResponse(false, "Файл БД не найден"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    // Создаем таблицу настроек если не существует
-                    await CreateSettingsTableIfNotExists(connection);
-
-                    // Сохраняем настройки
-                    var updateCmd = new SqliteCommand(@"
-                        INSERT OR REPLACE INTO BotSettings (
-                            Id, BotName, VkToken, GroupId, AutoStart, 
-                            NotifyNewUsers, NotifyErrors, NotifyEmail, LastUpdated
-                        ) VALUES (
-                            1, @BotName, @VkToken, @GroupId, @AutoStart,
-                            @NotifyNewUsers, @NotifyErrors, @NotifyEmail, datetime('now')
-                        )", connection);
-
-                    updateCmd.Parameters.AddWithValue("@BotName", request.BotName ?? "VK Бот");
-                    updateCmd.Parameters.AddWithValue("@VkToken", request.VkToken ?? string.Empty);
-                    updateCmd.Parameters.AddWithValue("@GroupId", request.GroupId ?? string.Empty);
-                    updateCmd.Parameters.AddWithValue("@AutoStart", request.AutoStart);
-                    updateCmd.Parameters.AddWithValue("@NotifyNewUsers", request.NotifyNewUsers);
-                    updateCmd.Parameters.AddWithValue("@NotifyErrors", request.NotifyErrors);
-                    updateCmd.Parameters.AddWithValue("@NotifyEmail", request.NotifyEmail ?? string.Empty);
-
-                    await updateCmd.ExecuteNonQueryAsync();
-
-                    _logger.LogInformation("Настройки сохранены: {BotName}", request.BotName);
-
-                    // Получаем обновленные настройки
-                    var getCmd = new SqliteCommand("SELECT * FROM BotSettings WHERE Id = 1", connection);
-
-                    await using (var reader = await getCmd.ExecuteReaderAsync())
+                    return BadRequest(new
                     {
-                        if (await reader.ReadAsync())
-                        {
-                            var settings = new BotSettingsDto
-                            {
-                                BotName = reader.IsDBNull(1) ? "VK Бот" : reader.GetString(1),
-                                VkToken = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                GroupId = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                AutoStart = reader.IsDBNull(4) || reader.GetBoolean(4),
-                                NotifyNewUsers = reader.IsDBNull(5) || reader.GetBoolean(5),
-                                NotifyErrors = reader.IsDBNull(6) || reader.GetBoolean(6),
-                                NotifyEmail = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-                                LastUpdated = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8)
-                            };
-
-                            return Ok(new ApiResponse(true, "Настройки сохранены", settings));
-                        }
-                    }
-
-                    return StatusCode(500, new ApiResponse(false, "Не удалось сохранить настройки"));
+                        success = false,
+                        message = "Токен VK API должен быть не менее 20 символов",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
+
+                var success = await _dbService.SaveBotSettingsAsync(request);
+
+                if (!success)
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        message = "Не удалось сохранить настройки",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                _logger.LogInformation("Сохранены настройки бота: {BotName}", request.BotName);
+
+                // Получаем обновленные настройки
+                var updatedSettings = await _dbService.GetBotSettingsAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Настройки сохранены",
+                    data = updatedSettings,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при сохранении настроек");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при сохранении настроек", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка сохранения настроек: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -538,25 +493,51 @@ namespace AdminPanel.Controllers
         [HttpPost("start-bot")]
         public async Task<IActionResult> StartBot()
         {
-            _logger.LogInformation("Запуск бота");
+            _logger.LogInformation("POST /api/commands/start-bot - запуск бота");
 
             try
             {
-                // Симуляция запуска
-                await Task.Delay(1000);
+                var result = await _botStatusService.StartBotAsync();
 
-                var isRunning = await CheckIfBotIsRunningAsync();
-
-                return Ok(new ApiResponse(true, "Команда на запуск бота отправлена", new
+                if (!result.Success)
                 {
-                    isRunning,
-                    timestamp = DateTime.Now
-                }));
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = result.Message,
+                        data = result.Data,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                _logger.LogInformation("Команда на запуск бота выполнена: {Message}", result.Message);
+
+                // Ждем немного и возвращаем обновленный статус
+                await Task.Delay(2000);
+                var botStatus = await _botStatusService.GetBotStatusAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = result.Message,
+                    data = new
+                    {
+                        result.Data,
+                        botStatus
+                    },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при запуске бота");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при запуске бота", ex.Message));
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка запуска бота: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -564,51 +545,51 @@ namespace AdminPanel.Controllers
         [HttpPost("stop-bot")]
         public async Task<IActionResult> StopBot()
         {
-            _logger.LogInformation("Остановка бота");
+            _logger.LogInformation("POST /api/commands/stop-bot - остановка бота");
 
             try
             {
-                // Симуляция остановки
-                await Task.Delay(1000);
+                var result = await _botStatusService.StopBotAsync();
 
-                return Ok(new ApiResponse(true, "Команда на остановку бота отправлена", new
+                if (!result.Success)
                 {
-                    timestamp = DateTime.Now
-                }));
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = result.Message,
+                        data = result.Data,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                _logger.LogInformation("Команда на остановку бота выполнена: {Message}", result.Message);
+
+                // Ждем немного и возвращаем обновленный статус
+                await Task.Delay(1000);
+                var botStatus = await _botStatusService.GetBotStatusAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = result.Message,
+                    data = new
+                    {
+                        result.Data,
+                        botStatus
+                    },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при остановке бота");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при остановке бота", ex.Message));
-            }
-        }
 
-        // GET: api/commands/bot-status
-        [HttpGet("bot-status")]
-        public async Task<IActionResult> GetBotStatus()
-        {
-            _logger.LogInformation("Получение статуса бота");
-
-            try
-            {
-                var isRunning = await CheckIfBotIsRunningAsync();
-
-                return Ok(new ApiResponse(true, "Статус бота получен", new
+                return StatusCode(500, new
                 {
-                    isRunning,
-                    status = isRunning ? "running" : "stopped",
-                    timestamp = DateTime.Now
-                }));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении статуса бота");
-                return Ok(new ApiResponse(false, "Ошибка при получении статуса", new
-                {
-                    isRunning = false,
-                    status = "error",
-                    error = ex.Message
-                }));
+                    success = false,
+                    message = $"Ошибка остановки бота: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -616,61 +597,176 @@ namespace AdminPanel.Controllers
         [HttpGet("bot-info")]
         public async Task<IActionResult> GetBotInfo()
         {
-            _logger.LogInformation("Получение информации о боте");
+            _logger.LogInformation("GET /api/commands/bot-info - информация о боте");
 
             try
             {
-                if (!System.IO.File.Exists(_dbPath))
+                var botStatus = await _botStatusService.GetBotStatusAsync();
+                var dbInfo = await _dbService.GetDatabaseInfoAsync();
+                var settings = await _dbService.GetBotSettingsAsync();
+
+                var response = new
                 {
-                    return Ok(new ApiResponse(false, "База данных не найдена"));
-                }
+                    botName = settings.BotName,
+                    groupId = settings.GroupId,
+                    autoStart = settings.AutoStart,
+                    lastUpdated = settings.LastUpdated,
+                    version = botStatus.Version,
+                    isRunning = botStatus.ProcessInfo.IsRunning,
+                    uptime = botStatus.Uptime.TotalSeconds,
+                    processId = botStatus.ProcessInfo.ProcessId,
+                    apiStatus = botStatus.ApiStatus.IsResponding,
+                    overallStatus = botStatus.OverallStatus,
+                    databaseInfo = dbInfo,
+                    timestamp = DateTime.UtcNow
+                };
 
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+                return Ok(new
                 {
-                    await connection.OpenAsync();
-
-                    // Проверяем существует ли таблица настроек
-                    var checkTableCmd = new SqliteCommand(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='BotSettings'",
-                        connection);
-
-                    var tableExists = await checkTableCmd.ExecuteScalarAsync() != null;
-
-                    if (!tableExists)
-                    {
-                        return Ok(new ApiResponse(false, "Таблица настроек не найдена"));
-                    }
-
-                    // Получаем настройки
-                    var getCmd = new SqliteCommand("SELECT * FROM BotSettings WHERE Id = 1", connection);
-
-                    await using (var reader = await getCmd.ExecuteReaderAsync())
-                    {
-                        if (await reader.ReadAsync())
-                        {
-                            var isRunning = await CheckIfBotIsRunningAsync();
-
-                            return Ok(new ApiResponse(true, "Информация о боте получена", new
-                            {
-                                botName = reader.IsDBNull(1) ? "VK Бот" : reader.GetString(1),
-                                groupId = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                autoStart = reader.IsDBNull(4) || reader.GetBoolean(4),
-                                lastUpdated = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8),
-                                version = GetBotVersion(),
-                                isRunning,
-                                uptime = isRunning ? await GetBotUptimeAsync() : TimeSpan.Zero,
-                                timestamp = DateTime.Now
-                            }));
-                        }
-                    }
-
-                    return Ok(new ApiResponse(false, "Настройки не найдены"));
-                }
+                    success = true,
+                    message = "Информация о боте получена",
+                    data = response,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при получении информации о боте");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при получении информации о боте", ex.Message));
+
+                return Ok(new
+                {
+                    success = false,
+                    message = $"Ошибка получения информации: {ex.Message}",
+                    data = new
+                    {
+                        botName = "VK Бот",
+                        isRunning = false,
+                        uptime = 0,
+                        overallStatus = "error",
+                        timestamp = DateTime.UtcNow
+                    },
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        // GET: api/commands/db-info
+        [HttpGet("db-info")]
+        public async Task<IActionResult> GetDatabaseInfo()
+        {
+            _logger.LogInformation("GET /api/commands/db-info - информация о БД");
+
+            try
+            {
+                var dbInfo = await _dbService.GetDatabaseInfoAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Информация о БД получена",
+                    data = dbInfo,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении информации о БД");
+
+                return Ok(new
+                {
+                    success = false,
+                    message = $"Ошибка получения информации: {ex.Message}",
+                    data = new DatabaseInfo
+                    {
+                        Exists = false,
+                        Error = ex.Message
+                    },
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        // POST: api/commands/migrate
+        [HttpPost("migrate")]
+        public async Task<IActionResult> MigrateDatabase()
+        {
+            _logger.LogInformation("POST /api/commands/migrate - миграция БД");
+
+            try
+            {
+                var success = await _dbService.MigrateDatabaseAsync();
+
+                if (!success)
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        message = "Не удалось выполнить миграцию БД",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                _logger.LogInformation("Миграция БД выполнена успешно");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Миграция БД выполнена успешно",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при миграции БД");
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка миграции: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        // POST: api/commands/recreate-db
+        [HttpPost("recreate-db")]
+        public async Task<IActionResult> RecreateDatabase()
+        {
+            _logger.LogInformation("POST /api/commands/recreate-db - пересоздание БД");
+
+            try
+            {
+                var success = await _dbService.RecreateDatabaseAsync();
+
+                if (!success)
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        message = "Не удалось пересоздать БД",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                _logger.LogInformation("БД успешно пересоздана");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "База данных успешно пересоздана",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при пересоздании БД");
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = $"Ошибка пересоздания БД: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
@@ -678,325 +774,103 @@ namespace AdminPanel.Controllers
         [HttpGet("test")]
         public async Task<IActionResult> Test()
         {
-            _logger.LogInformation("Тестирование API");
+            _logger.LogInformation("GET /api/commands/test - тест API");
 
             try
             {
-                var dbExists = System.IO.File.Exists(_dbPath);
-                var fileInfo = dbExists ? new System.IO.FileInfo(_dbPath) : null;
+                var dbInfo = await _dbService.GetDatabaseInfoAsync();
+                var botStatus = await _botStatusService.GetBotStatusAsync();
 
-                int commandsCount = 0;
-                if (dbExists)
+                return Ok(new
                 {
-                    try
+                    success = true,
+                    message = "API админ-панели работает",
+                    data = new
                     {
-                        await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+                        api = "AdminPanel API",
+                        version = "1.0.0",
+                        timestamp = DateTime.UtcNow,
+                        database = dbInfo,
+                        botStatus = new
                         {
-                            await connection.OpenAsync();
-                            var command = new SqliteCommand("SELECT COUNT(*) FROM Commands", connection);
-                            commandsCount = Convert.ToInt32(await command.ExecuteScalarAsync());
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Ошибка подсчета команд");
-                        commandsCount = -1;
-                    }
-                }
-
-                return Ok(new ApiResponse(true, "API админ-панели работает", new
-                {
-                    dbPath = _dbPath,
-                    exists = dbExists,
-                    dbSize = fileInfo?.Length,
-                    lastModified = fileInfo?.LastWriteTime,
-                    commandsCount,
-                    timestamp = DateTime.Now
-                }));
+                            isRunning = botStatus.ProcessInfo.IsRunning,
+                            overallStatus = botStatus.OverallStatus
+                        },
+                        environment = Environment.MachineName,
+                        os = Environment.OSVersion.VersionString
+                    },
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка в тестовом методе");
-                return Ok(new ApiResponse(false, "API работает, но есть ошибки", ex.Message));
-            }
-        }
 
-        // GET: api/commands/structure
-        [HttpGet("structure")]
-        public async Task<IActionResult> GetTableStructure()
-        {
-            _logger.LogInformation("Получение структуры таблицы");
-
-            try
-            {
-                if (!System.IO.File.Exists(_dbPath))
+                return Ok(new
                 {
-                    return Ok(new ApiResponse(false, $"Файл БД не найден: {_dbPath}"));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-                    var command = new SqliteCommand("PRAGMA table_info(Commands)", connection);
-
-                    var columns = new List<TableColumnInfo>();
-                    await using (var reader = await command.ExecuteReaderAsync())
-                    {
-                        while (await reader.ReadAsync())
-                        {
-                            columns.Add(new TableColumnInfo
-                            {
-                                Id = reader.GetInt32(0),
-                                Name = reader.GetString(1),
-                                Type = reader.GetString(2),
-                                NotNull = reader.GetInt32(3) == 1,
-                                DefaultValue = reader.IsDBNull(4) ? null : reader.GetString(4),
-                                IsPrimaryKey = reader.GetInt32(5) == 1
-                            });
-                        }
-                    }
-
-                    _logger.LogInformation("Структура таблицы загружена: {Count} колонок", columns.Count);
-
-                    return Ok(new ApiResponse(true, "Структура таблицы получена", new
-                    {
-                        table = "Commands",
-                        columns,
-                        count = columns.Count
-                    }));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении структуры таблицы");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при получении структуры таблицы", ex.Message));
-            }
-        }
-
-        // GET: api/commands/check-table
-        [HttpGet("check-table")]
-        public async Task<IActionResult> CheckTableExists()
-        {
-            _logger.LogInformation("Проверка существования таблицы");
-
-            try
-            {
-                if (!System.IO.File.Exists(_dbPath))
-                {
-                    _logger.LogWarning("Файл БД не найден: {DbPath}", _dbPath);
-                    return Ok(new ApiResponse(false, "Файл БД не найден", new
-                    {
-                        dbPath = _dbPath,
-                        dbExists = false,
-                        tableExists = false
-                    }));
-                }
-
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
-                {
-                    await connection.OpenAsync();
-
-                    // Проверяем существует ли таблица Commands
-                    var checkTableCommand = new SqliteCommand(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='Commands'",
-                        connection);
-
-                    var tableExists = await checkTableCommand.ExecuteScalarAsync() != null;
-                    _logger.LogInformation("Таблица Commands существует: {Exists}", tableExists);
-
-                    if (tableExists)
-                    {
-                        // Проверяем структуру таблицы
-                        var structureCommand = new SqliteCommand("PRAGMA table_info(Commands)", connection);
-                        var columns = new List<string>();
-
-                        await using (var reader = await structureCommand.ExecuteReaderAsync())
-                        {
-                            while (await reader.ReadAsync())
-                            {
-                                columns.Add($"{reader.GetString(1)} ({reader.GetString(2)})");
-                            }
-                        }
-
-                        return Ok(new ApiResponse(true, "Таблица найдена", new
-                        {
-                            tableExists = true,
-                            columns,
-                            columnCount = columns.Count,
-                            dbExists = true
-                        }));
-                    }
-
-                    return Ok(new ApiResponse(false, "Таблица не найдена", new
-                    {
-                        tableExists = false,
-                        message = "Таблица Commands не существует",
-                        dbExists = true
-                    }));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при проверке таблицы");
-                return StatusCode(500, new ApiResponse(false, "Ошибка проверки таблицы", ex.Message));
+                    success = false,
+                    message = $"API работает, но есть ошибки: {ex.Message}",
+                    data = new { error = ex.ToString() },
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 
         // POST: api/commands/init
         [HttpPost("init")]
-        public async Task<IActionResult> InitializeTable()
+        public async Task<IActionResult> InitializeDatabase()
         {
-            _logger.LogInformation("Инициализация таблицы");
+            _logger.LogInformation("POST /api/commands/init - инициализация БД");
 
             try
             {
-                await using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+                var success = await _dbService.InitializeDatabaseAsync();
+
+                if (!success)
                 {
-                    await connection.OpenAsync();
-
-                    // Создаем таблицу команд
-                    var command = new SqliteCommand(@"
-                        CREATE TABLE IF NOT EXISTS Commands (
-                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            Name TEXT NOT NULL,
-                            Triggers TEXT DEFAULT '',
-                            Response TEXT NOT NULL,
-                            KeyboardJson TEXT NULL,
-                            CommandType TEXT DEFAULT 'text',
-                            CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )", connection);
-
-                    await command.ExecuteNonQueryAsync();
-
-                    // Создаем таблицу настроек
-                    await CreateSettingsTableIfNotExists(connection);
-
-                    _logger.LogInformation("Таблицы созданы/проверены");
-
-                    return Ok(new ApiResponse(true, "Таблицы созданы/проверены", new
+                    return StatusCode(500, new
                     {
-                        dbPath = _dbPath
-                    }));
+                        success = false,
+                        message = "Не удалось инициализировать базу данных",
+                        timestamp = DateTime.UtcNow
+                    });
                 }
+
+                _logger.LogInformation("База данных успешно инициализирована");
+
+                // Получаем обновленную информацию
+                var dbInfo = await _dbService.GetDatabaseInfoAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "База данных инициализирована",
+                    data = dbInfo,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при инициализации таблицы");
-                return StatusCode(500, new ApiResponse(false, "Ошибка при инициализации таблицы", ex.Message));
-            }
-        }
+                _logger.LogError(ex, "Ошибка при инициализации БД");
 
-        // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-
-        private async Task CreateSettingsTableIfNotExists(SqliteConnection connection)
-        {
-            var checkTableCmd = new SqliteCommand(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='BotSettings'",
-                connection);
-
-            var tableExists = await checkTableCmd.ExecuteScalarAsync() != null;
-
-            if (!tableExists)
-            {
-                var createTableCmd = new SqliteCommand(@"
-                    CREATE TABLE BotSettings (
-                        Id INTEGER PRIMARY KEY CHECK (Id = 1),
-                        BotName TEXT DEFAULT 'VK Бот',
-                        VkToken TEXT DEFAULT '',
-                        GroupId TEXT DEFAULT '',
-                        AutoStart BOOLEAN DEFAULT 1,
-                        NotifyNewUsers BOOLEAN DEFAULT 1,
-                        NotifyErrors BOOLEAN DEFAULT 1,
-                        NotifyEmail TEXT DEFAULT '',
-                        LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )", connection);
-                await createTableCmd.ExecuteNonQueryAsync();
-
-                var insertCmd = new SqliteCommand(@"INSERT INTO BotSettings (Id) VALUES (1)", connection);
-                await insertCmd.ExecuteNonQueryAsync();
-
-                _logger.LogInformation("Таблица BotSettings создана");
-            }
-        }
-
-        private async Task<bool> CheckIfBotIsRunningAsync()
-        {
-            try
-            {
-                // 1. Проверка через процесс
-                var processes = System.Diagnostics.Process.GetProcessesByName("VKBot_nordciti");
-                if (processes.Length > 0) return true;
-
-                // 2. Проверка через файл блокировки
-                var lockFilePath = Path.Combine(Path.GetDirectoryName(_dbPath) ?? "", "bot.lock");
-                if (System.IO.File.Exists(lockFilePath))
+                return StatusCode(500, new
                 {
-                    var fileInfo = new System.IO.FileInfo(lockFilePath);
-                    if (fileInfo.CreationTime > DateTime.Now.AddMinutes(-5))
-                    {
-                        return true;
-                    }
-                }
-
-                // 3. Проверка через HTTP
-                try
-                {
-                    using var httpClient = new HttpClient();
-                    httpClient.Timeout = TimeSpan.FromSeconds(3);
-                    var response = await httpClient.GetAsync("http://localhost:5000/health");
-                    return response.IsSuccessStatusCode;
-                }
-                catch
-                {
-                    return false;
-                }
+                    success = false,
+                    message = $"Ошибка инициализации: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
             }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private async Task<TimeSpan> GetBotUptimeAsync()
-        {
-            try
-            {
-                var lockFilePath = Path.Combine(Path.GetDirectoryName(_dbPath) ?? "", "bot.lock");
-                if (System.IO.File.Exists(lockFilePath))
-                {
-                    var fileInfo = new FileInfo(lockFilePath);
-                    return DateTime.Now - fileInfo.CreationTime;
-                }
-
-                return TimeSpan.Zero;
-            }
-            catch
-            {
-                return TimeSpan.Zero;
-            }
-        }
-
-        private string GetBotVersion()
-        {
-            var versionFilePath = Path.Combine(Path.GetDirectoryName(_dbPath) ?? "", "version.txt");
-            if (System.IO.File.Exists(versionFilePath))
-            {
-                return System.IO.File.ReadAllText(versionFilePath).Trim();
-            }
-
-            return "1.0.0";
         }
     }
 
-    // ==================== МОДЕЛИ ЗАПРОСОВ ====================
-
+    // Модели запросов
     public class CreateCommandRequest
     {
         public string Name { get; set; } = string.Empty;
         public string? Triggers { get; set; }
         public string Response { get; set; } = string.Empty;
         public string? KeyboardJson { get; set; }
-        public string CommandType { get; set; } = "text";
+        public string? CommandType { get; set; }
     }
 
     public class UpdateCommandRequest
@@ -1006,39 +880,5 @@ namespace AdminPanel.Controllers
         public string? Response { get; set; }
         public string? KeyboardJson { get; set; }
         public string? CommandType { get; set; }
-    }
-
-    public class BotSettingsRequest
-    {
-        public string BotName { get; set; } = string.Empty;
-        public string VkToken { get; set; } = string.Empty;
-        public string GroupId { get; set; } = string.Empty;
-        public bool AutoStart { get; set; } = true;
-        public bool NotifyNewUsers { get; set; } = true;
-        public bool NotifyErrors { get; set; } = true;
-        public string NotifyEmail { get; set; } = string.Empty;
-    }
-
-    public class BotSettingsDto
-    {
-        public int Id { get; set; }
-        public string BotName { get; set; } = string.Empty;
-        public string VkToken { get; set; } = string.Empty;
-        public string GroupId { get; set; } = string.Empty;
-        public bool AutoStart { get; set; } = true;
-        public bool NotifyNewUsers { get; set; } = true;
-        public bool NotifyErrors { get; set; } = true;
-        public string NotifyEmail { get; set; } = string.Empty;
-        public DateTime LastUpdated { get; set; }
-    }
-
-    public class TableColumnInfo
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public bool NotNull { get; set; }
-        public string? DefaultValue { get; set; }
-        public bool IsPrimaryKey { get; set; }
     }
 }

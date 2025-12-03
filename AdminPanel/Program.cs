@@ -1,6 +1,7 @@
-﻿using AdminPanel.Services;
+﻿using AdminPanel.Configs;
+using AdminPanel.Services;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,22 +27,12 @@ builder.Services.AddControllersWithViews()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
-// HTTP клиенты
-builder.Services.AddHttpClient("BotApi", client =>
-{
-    var settings = builder.Configuration.GetSection("BotApi").Get<BotApiConfig>();
-    client.BaseAddress = new Uri(settings?.BaseUrl ?? "http://localhost:5000");
-    client.Timeout = TimeSpan.FromSeconds(settings?.TimeoutSeconds ?? 30);
-    client.DefaultRequestHeaders.Add("User-Agent", "AdminPanel/1.0");
-    client.DefaultRequestHeaders.Add("X-Admin-Panel", "true");
-});
-
-// Кэширование
+// Кэширование (ОДИН раз!)
 builder.Services.AddMemoryCache(options =>
 {
-    options.SizeLimit = 1024;
-    options.CompactionPercentage = 0.25;
-    options.ExpirationScanFrequency = TimeSpan.FromMinutes(5);
+    options.SizeLimit = 1024 * 1024; // 1MB лимит кэша
+    options.CompactionPercentage = 0.2; // 20% сжатия при достижении лимита
+    options.ExpirationScanFrequency = TimeSpan.FromMinutes(5); // Частота проверки истечения
 });
 
 // Защита данных
@@ -63,9 +54,31 @@ builder.Services.AddSession(options =>
 builder.Services.Configure<BotApiConfig>(builder.Configuration.GetSection("BotApi"));
 builder.Services.Configure<DatabaseConfig>(builder.Configuration.GetSection("Database"));
 
+// КОНФИГУРАЦИЯ ПУТЕЙ К БОТУ (обязательно!)
+builder.Services.Configure<BotPathsConfig>(options =>
+{
+    // Явно указываем пути
+    options.BotProjectPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti";
+    options.DatabaseName = "vkbot.db";
+});
+
+// HTTP клиенты (должен быть ПОСЛЕ конфигурации)
+builder.Services.AddHttpClient("BotApi", client =>
+{
+    var baseUrl = builder.Configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
+    var timeoutSeconds = int.TryParse(builder.Configuration["BotApi:TimeoutSeconds"], out var timeout)
+        ? timeout : 30;
+
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    client.DefaultRequestHeaders.Add("User-Agent", "AdminPanel/1.0");
+    client.DefaultRequestHeaders.Add("X-Admin-Panel", "true");
+});
+
 // Собственные сервисы
+builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<BotStatusService>();
-builder.Services.AddSingleton<DatabaseService>(); // Добавьте эту строку если используете DatabaseService
+builder.Services.AddScoped<CommandValidationService>();
 
 // Health checks
 builder.Services.AddHealthChecks()
@@ -134,29 +147,31 @@ public class DatabaseConfig
     public string ConnectionString { get; set; } = string.Empty;
 }
 
-public class DatabaseHealthCheck : Microsoft.Extensions.Diagnostics.HealthChecks.IHealthCheck
+public class DatabaseHealthCheck : IHealthCheck
 {
-    public Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult> CheckHealthAsync(
-        Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext context,
+    public Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
         try
         {
             // Путь к БД бота (в другом проекте)
-            var connectionString = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
-            if (System.IO.File.Exists(connectionString))
+            var dbPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
+
+            if (System.IO.File.Exists(dbPath))
             {
-                var fileInfo = new FileInfo(connectionString);
+                var fileInfo = new FileInfo(dbPath);
                 if (fileInfo.Length > 0)
                 {
-                    return Task.FromResult(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("База данных доступна"));
+                    return Task.FromResult(HealthCheckResult.Healthy("База данных доступна"));
                 }
+                return Task.FromResult(HealthCheckResult.Degraded("Файл БД пуст"));
             }
-            return Task.FromResult(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("База данных недоступна"));
+            return Task.FromResult(HealthCheckResult.Unhealthy("Файл БД не найден"));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Ошибка проверки БД", ex));
+            return Task.FromResult(HealthCheckResult.Unhealthy("Ошибка проверки БД", ex));
         }
     }
 }

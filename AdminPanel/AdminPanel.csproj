@@ -7,11 +7,26 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
-		<PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="8.0.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="8.0.0" />
+		<!-- Основные пакеты для работы с БД -->
+		<PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.0" />
+		<PackageReference Include="System.Data.SQLite" Version="1.0.118" />
+
+		<!-- HTTP и кэширование -->
+		<PackageReference Include="Microsoft.Extensions.Http" Version="7.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="7.0.0" />
+
+		<!-- Сессии -->
+		<PackageReference Include="Microsoft.AspNetCore.Session" Version="2.2.0" />
+
+		<!-- Здоровье и логирование -->
+		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="7.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="7.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="7.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="7.0.0" />
+
+		<!-- Защита данных -->
+		<PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="7.0.0" />
 	</ItemGroup>
 
 </Project>
