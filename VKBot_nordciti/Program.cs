@@ -1,14 +1,14 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using VKBot_nordciti.Data;
 using VKBot_nordciti.Services;
 using VKBot_nordciti.VK;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. ��������� �����������
+// 1. Добавляем контроллеры
 builder.Services.AddControllers();
 
-// 2. ��������� CORS
+// 2. Настройка CORS
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 builder.Services.AddCors(options =>
 {
@@ -22,15 +22,12 @@ builder.Services.AddCors(options =>
                       });
 });
 
-// 3. ��������� DbContext
+// 3. Настройка DbContext
 builder.Services.AddDbContext<BotDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // 4. Swagger
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddScoped<IMessageService, MesService>();
-builder.Services.AddScoped<ICommandService, CommandService>();
-builder.Services.AddScoped<IDataInitializer, DataInitializer>();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
@@ -43,7 +40,7 @@ builder.Services.AddSwaggerGen(c =>
 // 5. Http clients and services
 builder.Services.AddHttpClient();
 
-// ������� � �������������
+// 6. Сервисы бота
 builder.Services.AddSingleton<VkApiManager>(provider =>
 {
     var httpClient = provider.GetRequiredService<HttpClient>();
@@ -54,20 +51,28 @@ builder.Services.AddSingleton<VkApiManager>(provider =>
 
 builder.Services.AddSingleton<KeyboardProvider>();
 builder.Services.AddSingleton<ConversationStateService>();
+
+// Сервисы с внедрением конфигурации
 builder.Services.AddSingleton<FileLogger>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
-    return new FileLogger(configuration);
+    var logger = new FileLogger(configuration);
+    logger.Info("FileLogger инициализирован");
+    return logger;
 });
 
-// ������� �� ������� �������
+// НОВЫЕ СЕРВИСЫ ДЛЯ СИНХРОНИЗАЦИИ С АДМИН-ПАНЕЛЬЮ
+builder.Services.AddScoped<IVkUserService, VkUserService>();
+builder.Services.AddScoped<IUserSyncService, UserSyncService>();
+
+// Существующие сервисы
 builder.Services.AddScoped<ICommandService, CommandService>();
 builder.Services.AddScoped<IMessageService, MesService>();
 builder.Services.AddScoped<IDataInitializer, DataInitializer>();
 
 var app = builder.Build();
 
-// ������������ middleware pipeline
+// Конфигурация middleware pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -85,22 +90,34 @@ app.UseRouting();
 app.UseAuthorization();
 app.MapControllers();
 
-// ������������� ���� ������
+// Инициализация базы данных
 using (var scope = app.Services.CreateScope())
 {
     try
     {
+        var logger = scope.ServiceProvider.GetRequiredService<FileLogger>();
+        logger.Info("🚀 Начинается инициализация базы данных...");
+
         var dbContext = scope.ServiceProvider.GetRequiredService<BotDbContext>();
         dbContext.Database.EnsureCreated();
-        Console.WriteLine("SQLite database created successfully");
+        logger.Info("✅ SQLite база данных создана успешно");
 
         var initializer = scope.ServiceProvider.GetRequiredService<IDataInitializer>();
         await initializer.InitializeAsync();
-        Console.WriteLine("Data initializer completed");
+        logger.Info("✅ Инициализатор данных завершен");
+
+        logger.Info("🎉 Бот успешно запущен и готов к работе!");
+
+        // Проверяем настройки
+        var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        var adminUrl = config["AdminPanel:BaseUrl"];
+        logger.Info($"🌐 Админ-панель: {(string.IsNullOrEmpty(adminUrl) ? "Не настроена" : adminUrl)}");
+        logger.Info($"🔧 VK Token: {config["VkSettings:Token"]?.Substring(0, Math.Min(20, config["VkSettings:Token"]?.Length ?? 0))}...");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Database initialization failed: {ex.Message}");
+        Console.WriteLine($"❌ Ошибка инициализации базы данных: {ex.Message}");
+        Console.WriteLine(ex.StackTrace);
     }
 }
 

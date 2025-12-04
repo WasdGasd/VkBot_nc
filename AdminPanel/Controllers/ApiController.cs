@@ -337,28 +337,6 @@ namespace AdminPanel.Controllers
         public DateTime LastUpdate { get; set; }
     }
 
-    public class UserListResponse
-    {
-        public List<BotUser> Users { get; set; } = new();
-        public int TotalCount { get; set; }
-        public int Page { get; set; }
-        public int PageSize { get; set; }
-        public int TotalPages { get; set; }
-    }
-
-    public class BotUser
-    {
-        public int Id { get; set; }
-        public string? Username { get; set; }
-        public string? FirstName { get; set; }
-        public string? LastName { get; set; }
-        public bool IsActive { get; set; }
-        public bool IsOnline { get; set; }
-        public DateTime LastActivity { get; set; }
-        public int MessageCount { get; set; }
-        public DateTime RegistrationDate { get; set; }
-    }
-
     public class CommandsUsageResponse
     {
         public List<CommandUsage> Commands { get; set; } = new();

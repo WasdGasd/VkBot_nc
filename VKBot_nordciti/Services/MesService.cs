@@ -12,6 +12,8 @@ namespace VKBot_nordciti.Services
         private readonly FileLogger _logger;
         private readonly ICommandService _commandService;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IUserSyncService _userSyncService;
+        private readonly IVkUserService _vkUserService;
 
         private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -21,7 +23,9 @@ namespace VKBot_nordciti.Services
             ConversationStateService state,
             FileLogger logger,
             ICommandService commandService,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IUserSyncService userSyncService,
+            IVkUserService vkUserService)
         {
             _vk = vkApi;
             _kb = kb;
@@ -29,6 +33,8 @@ namespace VKBot_nordciti.Services
             _logger = logger;
             _commandService = commandService;
             _httpClientFactory = httpClientFactory;
+            _userSyncService = userSyncService;
+            _vkUserService = vkUserService;
         }
 
         public async Task ProcessMessageAsync(VkMessage message)
@@ -42,53 +48,133 @@ namespace VKBot_nordciti.Services
 
                 _logger.Info($"Processing message - FromId: {fromId}, PeerId: {peerId}, Text: '{text}'");
 
+                // ============ Синхронизация пользователя ============
+                try
+                {
+                    var userInfo = await _vkUserService.GetUserInfoAsync(userId);
+                    if (userInfo != null)
+                    {
+                        // 🔥 Отдельный try-catch для каждой операции синхронизации
+                        try
+                        {
+                            await _userSyncService.SyncUserAsync(
+                                userId,
+                                userInfo.FirstName,
+                                userInfo.LastName,
+                                userInfo.Username,
+                                true
+                            );
+                        }
+                        catch (Exception syncEx)
+                        {
+                            _logger.Warn($"Не удалось синхронизировать пользователя {userId}: {syncEx.Message}");
+                        }
+
+                        try
+                        {
+                            await _userSyncService.IncrementMessageCountAsync(userId);
+                        }
+                        catch (Exception countEx)
+                        {
+                            _logger.Warn($"Не удалось увеличить счетчик сообщений: {countEx.Message}");
+                        }
+
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(TimeSpan.FromMinutes(5));
+                            try
+                            {
+                                await _userSyncService.UpdateActivityAsync(userId, false);
+                            }
+                            catch (Exception updateEx)
+                            {
+                                _logger.Warn($"Не удалось обновить активность: {updateEx.Message}");
+                            }
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"Общая ошибка синхронизации пользователя: {ex.Message}");
+                }
+                // =====================================================
+
                 var targetPeerId = DetermineTargetPeerId(message);
                 if (targetPeerId == 0) return;
 
                 var state = _state.GetState(userId);
 
-                // 🔥 ИСПРАВЛЕНИЕ: Пропускаем поиск в БД для категорий билетов
-                bool isCategorySelection = text.Contains("👤") || text.Contains("👶") ||
-                                          text.ToLower().Contains("взрос") || text.ToLower().Contains("детск");
-
-                if (state == ConversationState.Idle && !isCategorySelection)
+                // 🔥 Проверяем административные команды
+                try
                 {
-                    var dbCommand = await _commandService.FindCommandAsync(text);
-                    if (dbCommand != null)
+                    if (await HandleAdminCommands(targetPeerId, userId, text))
                     {
-                        await SendMessage(targetPeerId, dbCommand.Response, dbCommand.KeyboardJson ?? _kb.MainMenu());
                         return;
                     }
                 }
-
-                switch (state)
+                catch (Exception adminEx)
                 {
-                    case ConversationState.WaitingForDate:
-                        await HandleDateSelection(targetPeerId, userId, text);
-                        break;
-                    case ConversationState.WaitingForSession:
-                        await HandleSessionSelection(targetPeerId, userId, text);
-                        break;
-                    case ConversationState.WaitingForCategory:
-                        await HandleCategorySelection(targetPeerId, userId, text);
-                        break;
-                    case ConversationState.WaitingForPayment:
-                        await HandlePayment(targetPeerId, userId, text);
-                        break;
-                    default:
-                        await HandleIdleState(targetPeerId, userId, text);
-                        break;
+                    _logger.Warn($"Ошибка обработки админ-команды: {adminEx.Message}");
+                }
+
+                // 🔥 Проверяем команды из БД (только в состоянии Idle)
+                if (state == ConversationState.Idle)
+                {
+                    try
+                    {
+                        var dbCommand = await _commandService.FindCommandAsync(text);
+                        if (dbCommand != null)
+                        {
+                            await SendMessage(targetPeerId, dbCommand.Response,
+                                            dbCommand.KeyboardJson ?? _kb.MainMenu());
+                            return;
+                        }
+                    }
+                    catch (Exception dbEx)
+                    {
+                        _logger.Warn($"Ошибка поиска команды в БД: {dbEx.Message}");
+                    }
+                }
+
+                // 🔥 Обработка состояний диалога
+                try
+                {
+                    switch (state)
+                    {
+                        case ConversationState.WaitingForDate:
+                            await HandleDateSelection(targetPeerId, userId, text);
+                            break;
+                        case ConversationState.WaitingForSession:
+                            await HandleSessionSelection(targetPeerId, userId, text);
+                            break;
+                        case ConversationState.WaitingForCategory:
+                            await HandleCategorySelection(targetPeerId, userId, text);
+                            break;
+                        case ConversationState.WaitingForPayment:
+                            await HandlePayment(targetPeerId, userId, text);
+                            break;
+                        default:
+                            await HandleIdleState(targetPeerId, userId, text);
+                            break;
+                    }
+                }
+                catch (Exception stateEx)
+                {
+                    _logger.Error(stateEx, "Ошибка обработки состояния диалога");
+                    await SendMessage(targetPeerId, "❌ Произошла ошибка при обработке запроса. Попробуйте позже.", _kb.MainMenu());
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "ProcessMessageAsync");
+                _logger.Error(ex, "Критическая ошибка ProcessMessageAsync");
+                try
+                {
+                    await _vk.SendMessageAsync(message.PeerId, "⚠️ Произошла техническая ошибка. Попробуйте позже.", _kb.MainMenu());
+                }
+                catch { }
             }
         }
 
-        /// <summary>
-        /// Обработка события, когда пользователь разрешил сообществу отправлять сообщения
-        /// </summary>
         public async Task HandleMessageAllowEvent(long userId)
         {
             _logger.Info($"User {userId} allowed messages from community");
@@ -109,58 +195,208 @@ namespace VKBot_nordciti.Services
             await SendMessage(userId, welcomeText, _kb.StartKeyboard());
         }
 
+        private async Task<bool> HandleAdminCommands(long peerId, long userId, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var normalizedText = text.ToLower().Trim();
+
+            // Команда для администраторов: статистика пользователей
+            if (normalizedText == "/статистика" || normalizedText == "статистика")
+            {
+                var stats = await _userSyncService.GetStatsAsync();
+                await SendMessage(peerId, stats, _kb.BackToMain());
+                return true;
+            }
+
+            // Команда для администраторов: поиск пользователей
+            if (normalizedText.StartsWith("/найти ") || normalizedText.StartsWith("найти "))
+            {
+                var query = normalizedText.Substring(normalizedText.StartsWith("/") ? 7 : 6);
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    await SendMessage(peerId, "Укажите имя, фамилию или username для поиска", _kb.BackToMain());
+                    return true;
+                }
+
+                var result = await _userSyncService.SearchUsersAsync(query, 3);
+                await SendMessage(peerId, result, _kb.BackToMain());
+                return true;
+            }
+
+            // Команда для администраторов: блокировка пользователя
+            if (normalizedText.StartsWith("/заблокировать ") || normalizedText.StartsWith("заблокировать "))
+            {
+                var parts = normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    await SendMessage(peerId, "Использование: /заблокировать [vk_id] [причина]", _kb.BackToMain());
+                    return true;
+                }
+
+                if (!long.TryParse(parts[1], out var targetUserId))
+                {
+                    await SendMessage(peerId, "Неверный формат VK ID", _kb.BackToMain());
+                    return true;
+                }
+
+                var reason = parts.Length > 2 ? string.Join(" ", parts.Skip(2)) : "";
+                var result = await _userSyncService.ManageUserAsync(targetUserId, true, reason);
+                await SendMessage(peerId, result, _kb.BackToMain());
+                return true;
+            }
+
+            // Команда для администраторов: разблокировка пользователя
+            if (normalizedText.StartsWith("/разблокировать ") || normalizedText.StartsWith("разблокировать "))
+            {
+                var parts = normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    await SendMessage(peerId, "Использование: /разблокировать [vk_id]", _kb.BackToMain());
+                    return true;
+                }
+
+                if (!long.TryParse(parts[1], out var targetUserId))
+                {
+                    await SendMessage(peerId, "Неверный формат VK ID", _kb.BackToMain());
+                    return true;
+                }
+
+                var result = await _userSyncService.ManageUserAsync(targetUserId, false);
+                await SendMessage(peerId, result, _kb.BackToMain());
+                return true;
+            }
+
+            // Список административных команд
+            if (normalizedText == "/admin" || normalizedText == "admin")
+            {
+                var helpText = "👑 Административные команды:\n\n" +
+                              "📊 /статистика - Статистика пользователей\n" +
+                              "🔍 /найти [имя] - Поиск пользователей\n" +
+                              "🚫 /заблокировать [vk_id] [причина] - Блокировка\n" +
+                              "✅ /разблокировать [vk_id] - Разблокировка\n\n" +
+                              "⚠️ Доступно только администраторам";
+                await SendMessage(peerId, helpText, _kb.BackToMain());
+                return true;
+            }
+
+            return false;
+        }
+
         private async Task HandleIdleState(long peerId, long userId, string text)
         {
             if (string.IsNullOrEmpty(text))
             {
-                // Вместо статического текста - главное меню из БД
-                var mainMenuCommand = await _commandService.FindCommandAsync("главное меню");
-                if (mainMenuCommand != null)
-                {
-                    await SendMessage(peerId, mainMenuCommand.Response, mainMenuCommand.KeyboardJson ?? _kb.MainMenu());
-                }
-                else
-                {
-                    await SendMessage(peerId, "Выберите раздел:", _kb.MainMenu());
-                }
+                await SendMessage(peerId, "🏊 **ДОБРО ПОЛОЖАЛОВАТЬ В ЦЕНТР YES!**\n\nВыберите интересующий вас раздел 👇", _kb.MainMenu());
                 return;
             }
 
-            // 🔥 ИСПРАВЛЕНИЕ: Добавляем проверку, что это не выбор категории
-            bool isCategorySelection = text.Contains("👤") || text.Contains("👶") ||
-                                      text.ToLower().Contains("взрос") || text.ToLower().Contains("детск");
+            var lowerText = text.ToLower();
 
-            if (!isCategorySelection && (text.Contains("📅") || text.ToLower().Contains("билет")))
+            // 1. Билеты
+            if (lowerText.Contains("билет") || text.Contains("📅"))
             {
                 _state.SetState(userId, ConversationState.WaitingForDate);
-                await SendMessage(peerId, "🎫 Покупка билетов\n\nВыберите дату для посещения:", _kb.TicketsDateKeyboard());
+                await SendMessage(peerId, "🎫 **ПОКУПКА БИЛЕТОВ**\n\nВыберите дату для посещения:", _kb.TicketsDateKeyboard());
                 return;
             }
 
-            if (text.Contains("📊") || text.ToLower().Contains("загруженность"))
+            // 2. Загруженность
+            if (lowerText.Contains("загруженность") || text.Contains("📊"))
             {
-                var loadInfo = await GetParkLoadAsync();
-                await SendMessage(peerId, loadInfo, _kb.BackToMain());
+                try
+                {
+                    var loadInfo = await GetParkLoadAsync();
+                    await SendMessage(peerId, loadInfo, _kb.BackToMain());
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "Ошибка получения загруженности");
+                    await SendMessage(peerId, "❌ Не удалось получить информацию о загруженности. Попробуйте позже.", _kb.BackToMain());
+                }
                 return;
             }
 
-            if (text.Contains("🔙") || text.ToLower().Contains("назад") || text.ToLower().Contains("главное меню"))
+            // 3. Информация
+            if (lowerText.Contains("информация") || text.Contains("ℹ️"))
+            {
+                await SendMessage(peerId,
+                    "📋 **ИНФОРМАЦИЯ О ЦЕНТРЕ YES**\n\n" +
+                    "• 🕒 Время работы\n" +
+                    "• 📞 Контакты\n" +
+                    "• 📍 Как добраться\n" +
+                    "• 🏊 Зоны отдыха\n\n" +
+                    "Выберите раздел:",
+                    _kb.InfoMenu());
+                return;
+            }
+
+            // 4. Время работы
+            if (lowerText.Contains("время") || lowerText.Contains("расписание") || text.Contains("🕒"))
+            {
+                await SendMessage(peerId,
+                    "🕒 **РЕЖИМ РАБОТЫ ЦЕНТРА YES**\n\n" +
+                    "🏊 Аквапарк:\n" +
+                    "• Пн-Пт: 10:00 - 22:00\n" +
+                    "• Сб-Вс: 9:00 - 23:00\n\n" +
+                    "🍽 Рестораны:\n" +
+                    "• Ежедневно: 11:00 - 23:00\n\n" +
+                    "🎳 Развлечения:\n" +
+                    "• Ежедневно: 10:00 - 24:00",
+                    _kb.BackToInfo());
+                return;
+            }
+
+            // 5. Контакты
+            if (lowerText.Contains("контакт") || lowerText.Contains("телефон") || text.Contains("📞"))
+            {
+                await SendMessage(peerId,
+                    "📞 **КОНТАКТЫ**\n\n" +
+                    "📍 Адрес: г. Вологда, ул. Примерная, 123\n\n" +
+                    "📱 Телефоны:\n" +
+                    "• Общая информация: +7 (8172) 12-34-56\n" +
+                    "• Бронирование: +7 (8172) 12-34-57\n\n" +
+                    "🌐 Сайт: https://yes35.ru",
+                    _kb.BackToInfo());
+                return;
+            }
+
+            // 6. Главное меню / Назад
+            if (lowerText.Contains("меню") || lowerText.Contains("начать") || lowerText.Contains("назад") ||
+                text.Contains("🔙") || text.Contains("🎯"))
             {
                 _state.SetState(userId, ConversationState.Idle);
-                await SendMessage(peerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
+                _state.ClearUserData(userId);
+                await SendMessage(peerId, "🏊 **ДОБРО ПОЛОЖАЛОВАТЬ В ЦЕНТР YES!**\n\nВыберите интересующий вас раздел 👇", _kb.MainMenu());
                 return;
             }
 
-            await SendMessage(peerId, "Я вас не понял 😊\n\nВыберите пункт меню или напишите 'помощь'", _kb.MainMenu());
-
-            if (text.Contains("🎯") || text.ToLower().Contains("начат"))
+            // 7. Помощь
+            if (lowerText.Contains("помощь") || lowerText.Contains("help") || lowerText.Contains("что ты умеешь"))
             {
-                _state.SetState(userId, ConversationState.Idle);
-                await SendMessage(peerId, "Выберите раздел 👇", _kb.MainMenu());
+                await SendMessage(peerId,
+                    "🤖 **ПОМОЩЬ**\n\n" +
+                    "Я ваш помощник по аквапарку YES! Вот что я умею:\n\n" +
+                    "📅 **Билеты** - Покупка билетов онлайн\n" +
+                    "📊 **Загруженность** - Текущая загруженность\n" +
+                    "ℹ️ **Информация** - Вся информация о центре\n" +
+                    "🕒 **Время работы** - Расписание работы\n" +
+                    "📞 **Контакты** - Телефоны и адрес\n\n" +
+                    "Просто выберите нужный пункт в меню ниже!",
+                    _kb.MainMenu());
                 return;
             }
+
+            // 8. Если ничего не подошло
+            await SendMessage(peerId,
+                "🤔 Я вас не понял.\n\n" +
+                "Попробуйте выбрать один из пунктов меню или напишите:\n" +
+                "• **помощь** - список команд\n" +
+                "• **меню** - вернуться в главное меню",
+                _kb.MainMenu());
         }
-            
+
         private async Task HandleDateSelection(long peerId, long userId, string text)
         {
             if (text.StartsWith("📅"))
@@ -169,18 +405,27 @@ namespace VKBot_nordciti.Services
                 _state.SetData(userId, "selected_date", date);
                 _state.SetState(userId, ConversationState.WaitingForSession);
 
-                // Получаем сеансы через API
                 var (sessionsText, sessionsKeyboard) = await GetSessionsForDateAsync(date);
                 await SendMessage(peerId, sessionsText, sessionsKeyboard);
             }
-            else if (text.Contains("🔙") || text.ToLower().Contains("назад"))
+            else if (text.Contains("🔙") || text.ToLower().Contains("назад") || text.ToLower().Contains("главное меню"))
             {
                 _state.SetState(userId, ConversationState.Idle);
                 await SendMessage(peerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
             }
             else
             {
-                await SendMessage(peerId, "Пожалуйста, выберите дату кнопкой 📅", _kb.TicketsDateKeyboard());
+                // Пробуем найти команду в БД
+                var dbCommand = await _commandService.FindCommandAsync(text);
+                if (dbCommand != null)
+                {
+                    _state.SetState(userId, ConversationState.Idle);
+                    await SendMessage(peerId, dbCommand.Response, dbCommand.KeyboardJson ?? _kb.MainMenu());
+                }
+                else
+                {
+                    await SendMessage(peerId, "Пожалуйста, выберите дату кнопкой 📅", _kb.TicketsDateKeyboard());
+                }
             }
         }
 
@@ -206,6 +451,11 @@ namespace VKBot_nordciti.Services
                 _state.SetState(userId, ConversationState.WaitingForDate);
                 await SendMessage(peerId, "Выберите дату:", _kb.TicketsDateKeyboard());
             }
+            else if (text.ToLower().Contains("главное меню"))
+            {
+                _state.SetState(userId, ConversationState.Idle);
+                await SendMessage(peerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
+            }
             else
             {
                 var date = _state.GetData(userId, "selected_date") ?? DateTime.Now.ToString("dd.MM.yyyy");
@@ -224,7 +474,6 @@ namespace VKBot_nordciti.Services
                 var date = _state.GetData(userId, "selected_date") ?? "неизвестная дата";
                 var session = _state.GetData(userId, "selected_session") ?? "неизвестный сеанс";
 
-                // Получаем тарифы через API
                 var (tariffsText, tariffsKeyboard) = await GetFormattedTariffsAsync(date, session, category);
 
                 _state.SetState(userId, ConversationState.WaitingForPayment);
@@ -236,6 +485,11 @@ namespace VKBot_nordciti.Services
                 var date = _state.GetData(userId, "selected_date") ?? DateTime.Now.ToString("dd.MM.yyyy");
                 var (sessionsText, sessionsKeyboard) = await GetSessionsForDateAsync(date);
                 await SendMessage(peerId, "Выберите сеанс:", sessionsKeyboard);
+            }
+            else if (text.ToLower().Contains("главное меню"))
+            {
+                _state.SetState(userId, ConversationState.Idle);
+                await SendMessage(peerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
             }
             else
             {
@@ -268,6 +522,11 @@ namespace VKBot_nordciti.Services
             {
                 _state.SetState(userId, ConversationState.WaitingForCategory);
                 await SendMessage(peerId, "Выберите категорию билетов:", _kb.TicketCategoryKeyboard());
+            }
+            else if (text.ToLower().Contains("главное меню"))
+            {
+                _state.SetState(userId, ConversationState.Idle);
+                await SendMessage(peerId, "Возвращаемся в главное меню 👇", _kb.MainMenu());
             }
             else
             {
@@ -349,7 +608,6 @@ namespace VKBot_nordciti.Services
                 var sessionsJson = await sessionsResponse.Content.ReadAsStringAsync();
                 _logger.Info($"Сырой ответ сеансов: {sessionsJson}");
 
-                // Пробуем разные варианты парсинга
                 try
                 {
                     var sessionsData = JsonSerializer.Deserialize<JsonElement>(sessionsJson, _jsonOptions);
@@ -507,10 +765,6 @@ namespace VKBot_nordciti.Services
             }
         }
 
-        // ======================================================
-        //               ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-        // ======================================================
-
         private (string message, string keyboard) ProcessSessionsArray(JsonElement[] sessionsArray, string date)
         {
             string text = $"🎟 Доступные сеансы на {date}:\n\n";
@@ -651,8 +905,6 @@ namespace VKBot_nordciti.Services
 
             return string.IsNullOrEmpty(formatted) ? "Стандартный" : formatted;
         }
-
-
 
         private string GetCategoryDisplayName(string category)
         {

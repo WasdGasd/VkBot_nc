@@ -27,12 +27,12 @@ builder.Services.AddControllersWithViews()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
-// Кэширование (ОДИН раз!)
+// Кэширование
 builder.Services.AddMemoryCache(options =>
 {
-    options.SizeLimit = 1024 * 1024; // 1MB лимит кэша
-    options.CompactionPercentage = 0.2; // 20% сжатия при достижении лимита
-    options.ExpirationScanFrequency = TimeSpan.FromMinutes(5); // Частота проверки истечения
+    options.SizeLimit = 1024 * 1024;
+    options.CompactionPercentage = 0.2;
+    options.ExpirationScanFrequency = TimeSpan.FromMinutes(5);
 });
 
 // Защита данных
@@ -54,15 +54,14 @@ builder.Services.AddSession(options =>
 builder.Services.Configure<BotApiConfig>(builder.Configuration.GetSection("BotApi"));
 builder.Services.Configure<DatabaseConfig>(builder.Configuration.GetSection("Database"));
 
-// КОНФИГУРАЦИЯ ПУТЕЙ К БОТУ (обязательно!)
+// КОНФИГУРАЦИЯ ПУТЕЙ К БОТУ
 builder.Services.Configure<BotPathsConfig>(options =>
 {
-    // Явно указываем пути
     options.BotProjectPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti";
     options.DatabaseName = "vkbot.db";
 });
 
-// HTTP клиенты (должен быть ПОСЛЕ конфигурации)
+// HTTP клиенты
 builder.Services.AddHttpClient("BotApi", client =>
 {
     var baseUrl = builder.Configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
@@ -75,16 +74,64 @@ builder.Services.AddHttpClient("BotApi", client =>
     client.DefaultRequestHeaders.Add("X-Admin-Panel", "true");
 });
 
-// Собственные сервисы
+// Собственные сервисы - ВАЖНО: UserService должен быть Singleton для гарантированной инициализации
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<BotStatusService>();
 builder.Services.AddScoped<CommandValidationService>();
+builder.Services.AddSingleton<UserService>();
 
 // Health checks
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("Database");
 
 var app = builder.Build();
+
+// ДИАГНОСТИКА ПРИ ЗАПУСКЕ
+try
+{
+    Console.WriteLine("\n=== ДИАГНОСТИКА ЗАПУСКА ===");
+
+    using (var scope = app.Services.CreateScope())
+    {
+        var userService = scope.ServiceProvider.GetRequiredService<UserService>();
+        var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+        // Проверяем базу данных
+        var dbInfo = await dbService.GetDatabaseInfoAsync();
+        Console.WriteLine($"1. База данных:");
+        Console.WriteLine($"   • Путь: {dbInfo.ConnectionString}");
+        Console.WriteLine($"   • Существует: {dbInfo.Exists}");
+        Console.WriteLine($"   • Размер: {dbInfo.FileSizeKB} KB");
+
+        // Пробуем получить пользователей
+        Console.WriteLine($"2. Пробуем получить пользователей...");
+        try
+        {
+            var usersResponse = await userService.GetUsersAsync(1, 5);
+            Console.WriteLine($"   • Успешно! Пользователей: {usersResponse.TotalCount}");
+            Console.WriteLine($"   • Загружено: {usersResponse.Users.Count}");
+
+            if (usersResponse.Users.Count > 0)
+            {
+                Console.WriteLine($"   • Пример: {usersResponse.Users[0].FirstName} {usersResponse.Users[0].LastName}");
+            }
+            else
+            {
+                Console.WriteLine($"   • Пользователей нет, будет создан тестовый");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"   • ОШИБКА: {ex.Message}");
+        }
+    }
+
+    Console.WriteLine("=== ДИАГНОСТИКА ЗАВЕРШЕНА ===\n");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"ОШИБКА ДИАГНОСТИКИ: {ex}");
+}
 
 // Конвейер middleware
 if (app.Environment.IsDevelopment())
@@ -155,7 +202,6 @@ public class DatabaseHealthCheck : IHealthCheck
     {
         try
         {
-            // Путь к БД бота (в другом проекте)
             var dbPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
 
             if (System.IO.File.Exists(dbPath))

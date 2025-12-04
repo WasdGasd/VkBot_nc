@@ -1,10 +1,11 @@
-﻿using Microsoft.Extensions.Caching.Memory;
+﻿using AdminPanel.Configs;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
-using System.Net.Sockets;
 using System.Net.Http;
-using AdminPanel.Configs;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace AdminPanel.Services
@@ -212,6 +213,232 @@ namespace AdminPanel.Services
             }
         }
 
+        // Добавьте эти методы в класс BotStatusService
+
+        /// <summary>
+        /// Безопасная остановка процесса
+        /// </summary>
+        private async Task<bool> SafeStopProcessAsync(int processId)
+        {
+            try
+            {
+                var process = Process.GetProcessById(processId);
+
+                if (process.HasExited)
+                {
+                    _logger.LogInformation("Процесс {ProcessId} уже завершен", processId);
+                    return true;
+                }
+
+                // 1. Пытаемся закрыть главное окно
+                if (process.MainWindowHandle != IntPtr.Zero)
+                {
+                    _logger.LogInformation("Закрытие главного окна процесса {ProcessId}", processId);
+                    process.CloseMainWindow();
+
+                    // Ждем 3 секунды
+                    if (process.WaitForExit(3000))
+                    {
+                        _logger.LogInformation("Процесс {ProcessId} завершился после CloseMainWindow", processId);
+                        return true;
+                    }
+                }
+
+                // 2. Для консольных приложений используем Ctrl+C
+                try
+                {
+                    if (await SendCtrlCSignalAsync(processId))
+                    {
+                        _logger.LogInformation("Отправлен сигнал Ctrl+C процессу {ProcessId}", processId);
+
+                        if (process.WaitForExit(3000))
+                        {
+                            _logger.LogInformation("Процесс {ProcessId} завершился после Ctrl+C", processId);
+                            return true;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Игнорируем ошибки Ctrl+C
+                }
+
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                // Процесс не найден - уже завершен
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при безопасной остановке процесса {ProcessId}", processId);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Безопасная остановка бота с выбором метода
+        /// </summary>
+        public async Task<BotCommandResult> StopBotAsync(bool graceful = true, int timeoutSeconds = 30)
+        {
+            _logger.LogInformation("Остановка бота (graceful: {Graceful}, timeout: {Timeout}s)...",
+                graceful, timeoutSeconds);
+
+            try
+            {
+                // Проверяем, запущен ли бот
+                var currentStatus = await GetBotStatusAsync();
+                if (!currentStatus.ProcessInfo.IsRunning)
+                {
+                    return BotCommandResult.FailResult("Бот не запущен");
+                }
+
+                var processes = Process.GetProcessesByName(_botProcessName);
+                var stoppedCount = 0;
+                var failedCount = 0;
+
+                foreach (var process in processes)
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            if (graceful)
+                            {
+                                // Безопасная остановка
+                                if (await SafeStopProcessAsync(process.Id))
+                                {
+                                    stoppedCount++;
+                                    _logger.LogInformation("Процесс безопасно остановлен: PID={ProcessId}", process.Id);
+                                }
+                                else
+                                {
+                                    // Если безопасная остановка не удалась, используем принудительную
+                                    process.Kill();
+                                    process.WaitForExit(3000);
+                                    stoppedCount++;
+                                    _logger.LogWarning("Процесс принудительно остановлен: PID={ProcessId}", process.Id);
+                                }
+                            }
+                            else
+                            {
+                                // Принудительная остановка
+                                process.Kill();
+                                process.WaitForExit(3000);
+                                stoppedCount++;
+                                _logger.LogWarning("Процесс принудительно остановлен: PID={ProcessId}", process.Id);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Ошибка при остановке процесса {ProcessId}", process.Id);
+                        failedCount++;
+                    }
+                }
+
+                // Удаляем файл блокировки
+                try
+                {
+                    var lockFilePath = _botPaths.BotLockFilePath;
+                    if (File.Exists(lockFilePath))
+                    {
+                        File.Delete(lockFilePath);
+                        _logger.LogDebug("Удален файл блокировки: {Path}", lockFilePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Не удалось удалить файл блокировки");
+                }
+
+                // Очищаем кэш статуса
+                ClearCache();
+
+                if (stoppedCount > 0)
+                {
+                    var message = graceful
+                        ? $"Безопасно остановлено процессов: {stoppedCount}"
+                        : $"Принудительно остановлено процессов: {stoppedCount}";
+
+                    if (failedCount > 0)
+                    {
+                        message += $", не удалось остановить: {failedCount}";
+                    }
+
+                    return BotCommandResult.SuccessResult(message, new { StoppedCount = stoppedCount, FailedCount = failedCount });
+                }
+                else
+                {
+                    return BotCommandResult.FailResult($"Не удалось остановить ни одного процесса. Ошибки: {failedCount}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при остановке бота");
+                return BotCommandResult.FailResult($"Ошибка остановки: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Отправка Ctrl+C сигнала консольному приложению
+        /// </summary>
+        private async Task<bool> SendCtrlCSignalAsync(int processId)
+        {
+            try
+            {
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        if (AttachConsole((uint)processId))
+                        {
+                            SetConsoleCtrlHandler(null, true);
+                            GenerateConsoleCtrlEvent(ConsoleCtrlEvent.CTRL_C_EVENT, 0);
+                            Thread.Sleep(100);
+                            FreeConsole();
+                            return true;
+                        }
+                        return false;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                });
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // WinAPI импорты для Ctrl+C
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AttachConsole(uint dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        static extern bool FreeConsole();
+
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate HandlerRoutine, bool Add);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool GenerateConsoleCtrlEvent(ConsoleCtrlEvent dwCtrlEvent, uint dwProcessGroupId);
+
+        delegate bool ConsoleCtrlDelegate(ConsoleCtrlEvent CtrlType);
+
+        enum ConsoleCtrlEvent
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_BREAK_EVENT = 1,
+            CTRL_CLOSE_EVENT = 2,
+            CTRL_LOGOFF_EVENT = 5,
+            CTRL_SHUTDOWN_EVENT = 6
+        }
+
         private async Task<ApiStatusInfo> CheckApiStatusAsync()
         {
             var apiStatus = new ApiStatusInfo();
@@ -229,7 +456,7 @@ namespace AdminPanel.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync(cts.Token);
-                    apiStatus.ResponseContent = content.Length > 200 ? content.Substring(0, 200) + "..." : content;
+                    apiStatus.ResponseContent = (content?.Length > 200 ? content.Substring(0, 200) + "..." : content) ?? "";
                     _logger.LogDebug("API бота отвечает: {StatusCode}", response.StatusCode);
                 }
                 else

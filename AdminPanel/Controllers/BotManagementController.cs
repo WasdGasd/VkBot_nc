@@ -4,7 +4,8 @@ using AdminPanel.Models;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
-using System.IO; // Добавляем это пространство имен
+using System.IO;
+using System.Runtime.InteropServices;
 
 namespace AdminPanel.Controllers
 {
@@ -16,15 +17,18 @@ namespace AdminPanel.Controllers
         private readonly DatabaseService _dbService;
         private readonly ILogger<BotManagementController> _logger;
         private static SemaphoreSlim _managementLock = new SemaphoreSlim(1, 1);
+        private readonly string _botApiUrl;
 
         public BotManagementController(
             BotStatusService botStatusService,
             DatabaseService dbService,
-            ILogger<BotManagementController> logger)
+            ILogger<BotManagementController> logger,
+            IConfiguration configuration)
         {
             _botStatusService = botStatusService;
             _dbService = dbService;
             _logger = logger;
+            _botApiUrl = configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
         }
 
         /// <summary>
@@ -135,7 +139,7 @@ namespace AdminPanel.Controllers
         /// Остановить бота безопасно
         /// </summary>
         [HttpPost("stop")]
-        public async Task<IActionResult> StopBot([FromQuery] bool graceful = true)
+        public async Task<IActionResult> StopBot([FromBody] StopBotRequest request)
         {
             if (!await _managementLock.WaitAsync(TimeSpan.FromSeconds(1)))
             {
@@ -144,7 +148,7 @@ namespace AdminPanel.Controllers
 
             try
             {
-                _logger.LogInformation("Получен запрос на остановку бота (graceful: {Graceful})", graceful);
+                _logger.LogInformation("Получен запрос на остановку бота (graceful: {Graceful})", request?.Graceful ?? true);
 
                 // 1. Проверяем текущий статус
                 var currentStatus = await _botStatusService.GetBotStatusAsync();
@@ -154,16 +158,37 @@ namespace AdminPanel.Controllers
                     return Ok(new ApiResponse(true, "Бот уже остановлен"));
                 }
 
+                var graceful = request?.Graceful ?? true;
+                var timeoutSeconds = request?.TimeoutSeconds ?? 30;
+
                 // 2. Если graceful, отправляем сигнал завершения
                 if (graceful && currentStatus.ApiStatus.IsResponding)
                 {
                     try
                     {
-                        await SendGracefulShutdownSignalAsync();
-                        _logger.LogInformation("Сигнал graceful shutdown отправлен");
+                        if (await TryGracefulShutdownAsync(timeoutSeconds))
+                        {
+                            _logger.LogInformation("Сигнал graceful shutdown отправлен");
 
-                        // Ждем завершения
-                        await WaitForGracefulShutdownAsync(currentStatus.ProcessInfo.ProcessId);
+                            // Ждем завершения
+                            await WaitForGracefulShutdownAsync(currentStatus.ProcessInfo.ProcessId, timeoutSeconds);
+
+                            // Проверяем, остановился ли процесс
+                            var checkStatus = await _botStatusService.GetBotStatusAsync();
+                            if (!checkStatus.ProcessInfo.IsRunning)
+                            {
+                                _logger.LogInformation("Бот успешно завершился graceful shutdown");
+
+                                // Очищаем файл блокировки
+                                await ClearLockFileAsync();
+
+                                return Ok(new ApiResponse(true, "Бот успешно остановлен (graceful shutdown)", new
+                                {
+                                    Method = "graceful",
+                                    timestamp = DateTime.UtcNow
+                                }));
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -171,24 +196,60 @@ namespace AdminPanel.Controllers
                     }
                 }
 
-                // 3. Останавливаем процесс
-                var stopResult = await _botStatusService.StopBotAsync();
+                // 3. Безопасная остановка процессов
+                var processes = Process.GetProcessesByName("VKBot_nordciti");
+                var stoppedCount = 0;
+                var force = !graceful;
 
-                if (!stopResult.Success)
+                foreach (var process in processes)
                 {
-                    return BadRequest(new ApiResponse(false, stopResult.Message));
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            if (force)
+                            {
+                                // Принудительная остановка
+                                process.Kill();
+                                process.WaitForExit(5000);
+                                stoppedCount++;
+                                _logger.LogWarning("Процесс принудительно остановлен: PID={ProcessId}", process.Id);
+                            }
+                            else
+                            {
+                                // Безопасная остановка
+                                if (await SafeStopProcessAsync(process.Id))
+                                {
+                                    stoppedCount++;
+                                    _logger.LogInformation("Процесс безопасно остановлен: PID={ProcessId}", process.Id);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Ошибка при остановке процесса {ProcessId}", process.Id);
+                    }
                 }
-
-                _logger.LogInformation("Бот успешно остановлен");
 
                 // 4. Очищаем файл блокировки
                 await ClearLockFileAsync();
 
-                return Ok(new ApiResponse(true, "Бот остановлен", new
+                if (stoppedCount > 0)
                 {
-                    Method = graceful ? "graceful" : "force",
-                    timestamp = DateTime.UtcNow
-                }));
+                    var message = force
+                        ? $"Принудительно остановлено процессов: {stoppedCount}"
+                        : $"Безопасно остановлено процессов: {stoppedCount}";
+
+                    return Ok(new ApiResponse(true, message, new
+                    {
+                        Method = force ? "force" : "safe",
+                        StoppedCount = stoppedCount,
+                        timestamp = DateTime.UtcNow
+                    }));
+                }
+
+                return BadRequest(new ApiResponse(false, "Не удалось остановить бота"));
             }
             catch (Exception ex)
             {
@@ -221,7 +282,7 @@ namespace AdminPanel.Controllers
 
                 if (currentStatus.ProcessInfo.IsRunning)
                 {
-                    var stopResponse = await StopBot(true);
+                    var stopResponse = await StopBot(new StopBotRequest { Graceful = true, TimeoutSeconds = 30 });
                     if (stopResponse is OkObjectResult stopResult && stopResult.Value is ApiResponse apiResponse && apiResponse.Success)
                     {
                         _logger.LogInformation("Бот успешно остановлен перед перезапуском");
@@ -317,9 +378,9 @@ namespace AdminPanel.Controllers
                         status.ApiStatus.IsResponding,
                         status.ApiStatus.StatusCode,
                         status.ApiStatus.ResponseTime,
-                        LastResponse = status.ApiStatus.ResponseContent?.Length > 100
-                            ? status.ApiStatus.ResponseContent.Substring(0, 100) + "..."
-                            : status.ApiStatus.ResponseContent
+                        LastResponse = (status.ApiStatus.ResponseContent?.Length > 100
+        ? status.ApiStatus.ResponseContent.Substring(0, 100) + "..."
+        : status.ApiStatus.ResponseContent) ?? ""
                     },
 
                     // Ресурсы
@@ -403,7 +464,7 @@ namespace AdminPanel.Controllers
             {
                 // 1. Проверяем существование исполняемого файла
                 var exePath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\VKBot_nordciti.exe";
-                if (!System.IO.File.Exists(exePath)) // Явно указываем System.IO
+                if (!System.IO.File.Exists(exePath))
                 {
                     result.AddError($"Файл бота не найден: {exePath}");
                 }
@@ -417,12 +478,12 @@ namespace AdminPanel.Controllers
 
                 // 3. Проверяем наличие конфигурации
                 var configPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\appsettings.json";
-                if (!System.IO.File.Exists(configPath)) // Явно указываем System.IO
+                if (!System.IO.File.Exists(configPath))
                 {
                     result.AddWarning("Конфигурационный файл не найден");
                 }
 
-                // 4. Проверяем свободный порт (если бот использует определенный порт)
+                // 4. Проверяем свободный порт
                 if (!await CheckPortAvailabilityAsync(5000))
                 {
                     result.AddWarning("Порт 5000 может быть занят");
@@ -453,33 +514,185 @@ namespace AdminPanel.Controllers
             }
         }
 
-        private async Task SendGracefulShutdownSignalAsync()
+        /// <summary>
+        /// Безопасная остановка процесса
+        /// </summary>
+        private async Task<bool> SafeStopProcessAsync(int processId)
         {
             try
             {
-                // Отправляем HTTP запрос на graceful shutdown endpoint бота
+                var process = Process.GetProcessById(processId);
+
+                if (process.HasExited)
+                {
+                    _logger.LogInformation("Процесс {ProcessId} уже завершен", processId);
+                    return true;
+                }
+
+                // 1. Пытаемся закрыть главное окно
+                if (process.MainWindowHandle != IntPtr.Zero)
+                {
+                    _logger.LogInformation("Закрытие главного окна процесса {ProcessId}", processId);
+                    process.CloseMainWindow();
+
+                    // Ждем 3 секунды
+                    if (process.WaitForExit(3000))
+                    {
+                        _logger.LogInformation("Процесс {ProcessId} завершился после CloseMainWindow", processId);
+                        return true;
+                    }
+                }
+
+                // 2. Для консольных приложений используем Ctrl+C
+                try
+                {
+                    if (await SendCtrlCSignalAsync(processId))
+                    {
+                        _logger.LogInformation("Отправлен сигнал Ctrl+C процессу {ProcessId}", processId);
+
+                        if (process.WaitForExit(3000))
+                        {
+                            _logger.LogInformation("Процесс {ProcessId} завершился после Ctrl+C", processId);
+                            return true;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Игнорируем ошибки Ctrl+C
+                }
+
+                // 3. Используем API для graceful shutdown
+                if (await TryApiShutdownAsync())
+                {
+                    _logger.LogInformation("Graceful shutdown через API успешен для процесса {ProcessId}", processId);
+
+                    if (process.WaitForExit(5000))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                // Процесс не найден - уже завершен
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при безопасной остановке процесса {ProcessId}", processId);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Отправка Ctrl+C сигнала консольному приложению
+        /// </summary>
+        private async Task<bool> SendCtrlCSignalAsync(int processId)
+        {
+            try
+            {
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        if (AttachConsole((uint)processId))
+                        {
+                            SetConsoleCtrlHandler(null, true);
+                            GenerateConsoleCtrlEvent(ConsoleCtrlEvent.CTRL_C_EVENT, 0u);
+                            Thread.Sleep(100);
+                            FreeConsole();
+                            return true;
+                        }
+                        return false;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                });
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // WinAPI импорты для Ctrl+C
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AttachConsole(uint dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        static extern bool FreeConsole();
+
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate HandlerRoutine, bool Add);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool GenerateConsoleCtrlEvent(ConsoleCtrlEvent dwCtrlEvent, uint dwProcessGroupId);
+
+        delegate bool ConsoleCtrlDelegate(ConsoleCtrlEvent CtrlType);
+
+        enum ConsoleCtrlEvent
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_BREAK_EVENT = 1,
+            CTRL_CLOSE_EVENT = 2,
+            CTRL_LOGOFF_EVENT = 5,
+            CTRL_SHUTDOWN_EVENT = 6
+        }
+
+        /// <summary>
+        /// Пытаемся остановить бот через его API
+        /// </summary>
+        private async Task<bool> TryApiShutdownAsync()
+        {
+            try
+            {
                 using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(5);
+                httpClient.Timeout = TimeSpan.FromSeconds(10);
 
                 var response = await httpClient.PostAsync(
-                    "http://localhost:5000/api/admin/shutdown",
+                    $"{_botApiUrl}/api/admin/shutdown",
                     new StringContent("{}", Encoding.UTF8, "application/json"));
 
-                if (response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation("Graceful shutdown signal accepted by bot");
-                }
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Отправляем graceful shutdown сигнал через API
+        /// </summary>
+        private async Task<bool> TryGracefulShutdownAsync(int timeoutSeconds)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+                var response = await httpClient.PostAsync(
+                    $"{_botApiUrl}/api/admin/shutdown",
+                    new StringContent("{}", Encoding.UTF8, "application/json"));
+
+                return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Не удалось отправить graceful shutdown signal");
-                throw;
+                return false;
             }
         }
 
-        private async Task WaitForGracefulShutdownAsync(int processId)
+        private async Task WaitForGracefulShutdownAsync(int processId, int timeoutSeconds)
         {
-            var maxWaitTime = TimeSpan.FromSeconds(30);
+            var maxWaitTime = TimeSpan.FromSeconds(timeoutSeconds);
             var checkInterval = TimeSpan.FromSeconds(1);
             var elapsed = TimeSpan.Zero;
 
@@ -506,7 +719,6 @@ namespace AdminPanel.Controllers
             }
 
             _logger.LogWarning("Таймаут ожидания graceful shutdown");
-            throw new TimeoutException("Бот не завершил работу в течение 30 секунд");
         }
 
         private async Task ClearLockFileAsync()
@@ -514,9 +726,9 @@ namespace AdminPanel.Controllers
             try
             {
                 var lockFilePath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\bot.lock";
-                if (System.IO.File.Exists(lockFilePath)) // Явно указываем System.IO
+                if (System.IO.File.Exists(lockFilePath))
                 {
-                    System.IO.File.Delete(lockFilePath); // Явно указываем System.IO
+                    System.IO.File.Delete(lockFilePath);
                     _logger.LogDebug("Файл блокировки удален");
                 }
             }
@@ -541,7 +753,14 @@ namespace AdminPanel.Controllers
         }
     }
 
-    // Вспомогательные классы
+    // ==================== МОДЕЛИ ====================
+
+    public class StopBotRequest
+    {
+        public bool Graceful { get; set; } = true;
+        public int TimeoutSeconds { get; set; } = 30;
+    }
+
     public class PreCheckResult
     {
         public bool Success { get; set; } = true;

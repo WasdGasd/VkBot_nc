@@ -21,8 +21,6 @@ namespace VKBot_nordciti.Services
             _botDbContext = botDbContext;
         }
 
-
-        // ВСТАВИТЬ ВМЕСТО НИХ ЭТО:
         public async Task<Command?> FindCommandAsync(string messageText)
         {
             if (string.IsNullOrWhiteSpace(messageText))
@@ -41,7 +39,9 @@ namespace VKBot_nordciti.Services
                     .Where(t => !string.IsNullOrEmpty(t))
                     .ToList();
 
-                if (triggers.Any(trigger => normalizedText.Contains(trigger)))
+                if (triggers.Any(trigger =>
+                    normalizedText == trigger ||
+                    normalizedText.Contains(trigger)))
                 {
                     return command;
                 }
@@ -54,14 +54,10 @@ namespace VKBot_nordciti.Services
             return await _botDbContext.Commands.ToListAsync();
         }
 
-
+        // 🔥 ИСПРАВЛЕННЫЙ МЕТОД
         public async Task<string> ProcessCommandAsync(Command command, Dictionary<string, string>? parameters = null)
         {
-            //Не потерять 
-            var commanditem = await _botDbContext.Commands.FirstOrDefaultAsync(i => i.Name == command.CommandType.ToLower());
-
-            return commanditem.Response;
-
+            return command.Response;
         }
 
         public async Task<List<SessionInfo>> GetSessionsListAsync(string date)
@@ -108,8 +104,6 @@ namespace VKBot_nordciti.Services
             return default;
         }
 
-
-
         private List<SessionInfo> ParseSessionsFromArray(JsonElement array)
         {
             var sessions = new List<SessionInfo>();
@@ -123,7 +117,6 @@ namespace VKBot_nordciti.Services
                 {
                     var session = new SessionInfo();
 
-                    // Пробуем разные названия полей для времени
                     string[] timeFields = { "sessionTime", "SessionTime", "time", "Time", "name", "Name", "title", "Title" };
                     foreach (var field in timeFields)
                     {
@@ -134,7 +127,6 @@ namespace VKBot_nordciti.Services
                         }
                     }
 
-                    // Пробуем разные названия полей для свободных мест
                     string[] freeFields = { "availableCount", "AvailableCount", "placesFree", "PlacesFree", "free", "Free", "available", "Available" };
                     foreach (var field in freeFields)
                     {
@@ -145,7 +137,6 @@ namespace VKBot_nordciti.Services
                         }
                     }
 
-                    // Пробуем разные названия полей для общих мест
                     string[] totalFields = { "totalCount", "TotalCount", "placesTotal", "PlacesTotal", "total", "Total", "capacity", "Capacity" };
                     foreach (var field in totalFields)
                     {
@@ -156,7 +147,6 @@ namespace VKBot_nordciti.Services
                         }
                     }
 
-                    // Если время не найдено в стандартных полях, ищем в любом строковом поле
                     if (string.IsNullOrEmpty(session.Time))
                     {
                         foreach (var property in item.EnumerateObject())
@@ -248,7 +238,6 @@ namespace VKBot_nordciti.Services
                 {
                     var tariff = new TariffInfo();
 
-                    // Получаем название
                     string[] nameFields = { "Name", "name", "Title", "title" };
                     foreach (var field in nameFields)
                     {
@@ -259,7 +248,6 @@ namespace VKBot_nordciti.Services
                         }
                     }
 
-                    // Получаем цену
                     string[] priceFields = { "Price", "price", "Cost", "cost" };
                     foreach (var field in priceFields)
                     {
@@ -270,7 +258,6 @@ namespace VKBot_nordciti.Services
                         }
                     }
 
-                    // Фильтруем по категории
                     if (!string.IsNullOrEmpty(tariff.Name) && tariff.Price > 0)
                     {
                         string nameLower = tariff.Name.ToLower();
@@ -280,7 +267,6 @@ namespace VKBot_nordciti.Services
                         if ((category == "adult" && isAdult && !isChild) ||
                             (category == "child" && isChild && !isAdult))
                         {
-                            // Форматируем название
                             tariff.Name = FormatTicketName(tariff.Name);
                             tariffs.Add(tariff);
                         }
@@ -322,12 +308,6 @@ namespace VKBot_nordciti.Services
             }
 
             return string.IsNullOrEmpty(formatted) ? "Стандартный" : formatted;
-        }
-
-        private class ParkLoadResponse
-        {
-            public int Count { get; set; }
-            public int Load { get; set; }
         }
 
         public class SessionInfo

@@ -1,29 +1,32 @@
 using Microsoft.AspNetCore.Mvc;
 
-public class HomeController : Controller
+namespace AdminPanel.Controllers
 {
-    public IActionResult Dashboard()
+    public class HomeController : Controller
     {
-        return View();
-    }
+        public IActionResult Dashboard()
+        {
+            return View();
+        }
 
-    public IActionResult Broadcast()
-    {
-        return View();
-    }
+        public IActionResult Broadcast()
+        {
+            return View();
+        }
 
-    public IActionResult Users()
-    {
-        return View();
-    }
+        public IActionResult Users()
+        {
+            return View();
+        }
 
-    public IActionResult Error()
-    {
-        return View();
-    }
+        public IActionResult Error()
+        {
+            return View();
+        }
 
-    public IActionResult Settings()
-    {
-        return View();
+        public IActionResult Settings()
+        {
+            return View();
+        }
     }
 }
