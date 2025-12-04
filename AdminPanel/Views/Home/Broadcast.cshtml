@@ -1,4 +1,5 @@
-﻿@{
+
+@{
     ViewData["Title"] = "Рассылка";
 }
 
@@ -16,20 +17,23 @@
             <label class="form-label">Получатели:</label>
             <div>
                 <div class="form-check">
-                    <input class="form-check-input" type="radio" name="recipients" id="allUsers" checked>
+                    <input class="form-check-input" type="radio" name="recipients" id="allUsers" value="all" checked>
                     <label class="form-check-label" for="allUsers">
-                        📨 Все пользователи (150 чел.)
+                        📨 Все пользователи
                     </label>
                 </div>
                 <div class="form-check">
-                    <input class="form-check-input" type="radio" name="recipients" id="activeUsers">
+                    <input class="form-check-input" type="radio" name="recipients" id="activeUsers" value="active">
                     <label class="form-check-label" for="activeUsers">
-                        🟢 Только активные (23 чел.)
+                        🟢 Только активные
                     </label>
                 </div>
             </div>
         </div>
 
+        <!-- статус отправки -->
+        <div id="statusMessage" class="alert d-none"></div>
+        
         <button onclick="sendBroadcast()" class="btn btn-warning btn-lg">
             📢 Отправить рассылку
         </button>
@@ -44,29 +48,47 @@
                 alert('Пожалуйста, введите сообщение');
                 return;
             }
-
+            
+            // смотрим получателей
+            const recipientType = document.querySelector('input[name="recipients"]:checked').value;
+            
             if (!confirm('Вы уверены что хотите отправить рассылку?')) {
                 return;
             }
 
+            // статус
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.className = 'alert alert-info';
+            statusEl.innerHTML = '🔄 Отправка рассылки...';
+            statusEl.classList.remove('d-none');
+
             try {
-                const response = await fetch('/api/broadcast', {
+                // использ. существующий метод из ApiController
+                const response = await fetch('/api/Api/broadcast', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({ 
+                        message: message,
+                        recipientType: recipientType
+                    })
                 });
 
-                if (response.ok) {
-                    alert('✅ Рассылка отправлена!');
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusEl.className = 'alert alert-success';
+                    statusEl.innerHTML = '✅ Рассылка отправлена успешно!';
                     document.getElementById('broadcastMessage').value = '';
                 } else {
-                    alert('❌ Ошибка отправки рассылки');
+                    statusEl.className = 'alert alert-danger';
+                    statusEl.innerHTML = '❌ Ошибка: ' + result.message;
                 }
             } catch (error) {
                 console.error('Ошибка:', error);
-                alert('❌ Ошибка отправки рассылки');
+                statusEl.className = 'alert alert-danger';
+                statusEl.innerHTML = '❌ Ошибка отправки рассылки: ' + error.message;
             }
         }
     </script>
