@@ -74,11 +74,11 @@ builder.Services.AddHttpClient("BotApi", client =>
     client.DefaultRequestHeaders.Add("X-Admin-Panel", "true");
 });
 
-// Собственные сервисы - ВАЖНО: UserService должен быть Singleton для гарантированной инициализации
+// Собственные сервисы
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<BotStatusService>();
+builder.Services.AddScoped<UserService>(); // Важно: Singleton для гарантированной инициализации
 builder.Services.AddScoped<CommandValidationService>();
-builder.Services.AddSingleton<UserService>();
 
 // Health checks
 builder.Services.AddHealthChecks()

@@ -379,8 +379,8 @@ namespace AdminPanel.Controllers
                         status.ApiStatus.StatusCode,
                         status.ApiStatus.ResponseTime,
                         LastResponse = (status.ApiStatus.ResponseContent?.Length > 100
-        ? status.ApiStatus.ResponseContent.Substring(0, 100) + "..."
-        : status.ApiStatus.ResponseContent) ?? ""
+    ? status.ApiStatus.ResponseContent.Substring(0, 100) + "..."
+    : status.ApiStatus.ResponseContent) ?? string.Empty
                     },
 
                     // Ресурсы

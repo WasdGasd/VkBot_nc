@@ -52,9 +52,9 @@ namespace AdminPanel.Services
                     CREATE TABLE IF NOT EXISTS Users (
                         Id INTEGER PRIMARY KEY AUTOINCREMENT,
                         VkUserId INTEGER UNIQUE NOT NULL,
-                        FirstName TEXT,
-                        LastName TEXT,
-                        Username TEXT,
+                        FirstName TEXT NOT NULL,
+                        LastName TEXT NOT NULL,
+                        Username TEXT DEFAULT '',
                         IsActive BOOLEAN DEFAULT 1,
                         IsOnline BOOLEAN DEFAULT 0,
                         LastActivity DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -62,9 +62,11 @@ namespace AdminPanel.Services
                         RegistrationDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                         IsBanned BOOLEAN DEFAULT 0,
                         Status TEXT DEFAULT 'user',
-                        Email TEXT,
-                        Phone TEXT,
-                        Location TEXT,
+                        Email TEXT DEFAULT '',
+                        Phone TEXT DEFAULT '',
+                        Location TEXT DEFAULT '',
+                        PhotoUrl TEXT DEFAULT '',
+                        Notes TEXT DEFAULT '',
                         CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                         UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
                     )";
@@ -111,23 +113,42 @@ namespace AdminPanel.Services
                 using var messagesIndexCmd = new SqliteCommand(messagesIndexSql, connection);
                 messagesIndexCmd.ExecuteNonQuery();
 
-                // 4. Добавляем тестового пользователя если таблица пуста
+                // 4. Добавляем тестовых пользователей если таблица пуста
                 var countCmd = new SqliteCommand("SELECT COUNT(*) FROM Users", connection);
                 var count = Convert.ToInt32(countCmd.ExecuteScalar());
 
                 if (count == 0)
                 {
-                    _logger.LogInformation("Таблица Users пуста, добавляем тестового пользователя...");
+                    _logger.LogInformation("Таблица Users пуста, добавляем тестовых пользователей...");
 
-                    var testUserSql = @"
-                        INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
-                                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email)
-                        VALUES (123456789, 'Тестовый', 'Пользователь', 'test_user', 1, 0, 
-                                CURRENT_TIMESTAMP, 10, CURRENT_TIMESTAMP, 0, 'user', 'test@example.com')";
+                    var testUsers = new[]
+                    {
+                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
+                          VALUES (123456789, 'Иван', 'Иванов', 'ivan_ivanov', 1, 1, 
+                          CURRENT_TIMESTAMP, 15, DATETIME('now', '-10 days'), 0, 'user', 'ivan@example.com', '+7 999 123-45-67', 'Москва')",
 
-                    using var testCmd = new SqliteCommand(testUserSql, connection);
-                    testCmd.ExecuteNonQuery();
-                    _logger.LogInformation("Тестовый пользователь добавлен");
+                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
+                          VALUES (987654321, 'Мария', 'Петрова', 'maria_petrova', 1, 0, 
+                          DATETIME('now', '-2 hours'), 8, DATETIME('now', '-5 days'), 0, 'vip', 'maria@example.com', '+7 999 987-65-43', 'Санкт-Петербург')",
+
+                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
+                          VALUES (555555555, 'Алексей', 'Сидоров', 'alex_sidorov', 1, 1, 
+                          CURRENT_TIMESTAMP, 23, DATETIME('now', '-15 days'), 0, 'user', 'alex@example.com', '+7 999 555-55-55', 'Екатеринбург')"
+                    };
+
+                    foreach (var sql in testUsers)
+                    {
+                        using var testCmd = new SqliteCommand(sql, connection);
+                        testCmd.ExecuteNonQuery();
+                    }
+
+                    // Добавляем тестовые сообщения
+                    AddTestMessages(connection);
+
+                    _logger.LogInformation("3 тестовых пользователя добавлены");
                 }
                 else
                 {
@@ -140,6 +161,46 @@ namespace AdminPanel.Services
             {
                 _logger.LogError(ex, "КРИТИЧЕСКАЯ ОШИБКА при инициализации таблицы Users");
                 throw;
+            }
+        }
+
+        private void AddTestMessages(SqliteConnection connection)
+        {
+            try
+            {
+                // Добавляем тестовые сообщения для пользователей
+                var testMessages = new[]
+                {
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (123456789, 'Привет! Как мне забронировать билет?', 1, DATETIME('now', '-3 hours'))",
+
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (123456789, 'Здравствуйте! Вы можете забронировать билет через наше мобильное приложение или на сайте.', 0, DATETIME('now', '-3 hours', '+5 minutes'))",
+
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (987654321, 'Какие есть скидки для студентов?', 1, DATETIME('now', '-1 day'))",
+
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (987654321, 'Для студентов действует скидка 20% при предъявлении студенческого билета.', 0, DATETIME('now', '-1 day', '+10 minutes'))",
+
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (555555555, 'До скольки вы работаете сегодня?', 1, DATETIME('now', '-30 minutes'))",
+
+                    @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
+                      VALUES (555555555, 'Мы работаем с 10:00 до 22:00. Последний сеанс в 21:00.', 0, DATETIME('now', '-25 minutes'))"
+                };
+
+                foreach (var sql in testMessages)
+                {
+                    using var cmd = new SqliteCommand(sql, connection);
+                    cmd.ExecuteNonQuery();
+                }
+
+                _logger.LogInformation("Добавлены тестовые сообщения");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при добавлении тестовых сообщений");
             }
         }
 
@@ -157,7 +218,8 @@ namespace AdminPanel.Services
             var response = new UserListResponse
             {
                 Page = page,
-                PageSize = pageSize
+                PageSize = pageSize,
+                Users = new List<User>()
             };
 
             try
@@ -253,19 +315,19 @@ namespace AdminPanel.Services
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
 
                     response.Users.Add(user);
@@ -333,19 +395,19 @@ namespace AdminPanel.Services
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
                 }
 
@@ -383,19 +445,19 @@ namespace AdminPanel.Services
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
                 }
 
@@ -410,6 +472,11 @@ namespace AdminPanel.Services
 
         public async Task<User> AddOrUpdateUserAsync(User user)
         {
+            return await AddOrUpdateUserAsyncInternal(user);
+        }
+
+        private async Task<User> AddOrUpdateUserAsyncInternal(User user)
+        {
             try
             {
                 using var connection = new SqliteConnection(_connectionString);
@@ -422,16 +489,16 @@ namespace AdminPanel.Services
                 {
                     // Добавляем нового пользователя
                     var insertSql = @"
-                        INSERT INTO Users (
-                            VkUserId, FirstName, LastName, Username,
-                            IsActive, IsOnline, LastActivity, MessageCount,
-                            RegistrationDate, IsBanned, Status, Email, Phone, Location
-                        ) VALUES (
-                            @VkUserId, @FirstName, @LastName, @Username,
-                            @IsActive, @IsOnline, @LastActivity, @MessageCount,
-                            @RegistrationDate, @IsBanned, @Status, @Email, @Phone, @Location
-                        );
-                        SELECT last_insert_rowid();";
+                INSERT INTO Users (
+                    VkUserId, FirstName, LastName, Username,
+                    IsActive, IsOnline, LastActivity, MessageCount,
+                    RegistrationDate, IsBanned, Status, Email, Phone, Location
+                ) VALUES (
+                    @VkUserId, @FirstName, @LastName, @Username,
+                    @IsActive, @IsOnline, @LastActivity, @MessageCount,
+                    @RegistrationDate, @IsBanned, @Status, @Email, @Phone, @Location
+                );
+                SELECT last_insert_rowid();";
 
                     using var insertCmd = new SqliteCommand(insertSql, connection);
                     AddUserParameters(insertCmd, user);
@@ -448,21 +515,21 @@ namespace AdminPanel.Services
                     user.Id = existingUser.Id;
 
                     var updateSql = @"
-                        UPDATE Users SET
-                            FirstName = @FirstName,
-                            LastName = @LastName,
-                            Username = @Username,
-                            IsActive = @IsActive,
-                            IsOnline = @IsOnline,
-                            LastActivity = @LastActivity,
-                            MessageCount = @MessageCount,
-                            IsBanned = @IsBanned,
-                            Status = @Status,
-                            Email = @Email,
-                            Phone = @Phone,
-                            Location = @Location,
-                            UpdatedAt = CURRENT_TIMESTAMP
-                        WHERE VkUserId = @VkUserId";
+                UPDATE Users SET
+                    FirstName = @FirstName,
+                    LastName = @LastName,
+                    Username = @Username,
+                    IsActive = @IsActive,
+                    IsOnline = @IsOnline,
+                    LastActivity = @LastActivity,
+                    MessageCount = @MessageCount,
+                    IsBanned = @IsBanned,
+                    Status = @Status,
+                    Email = @Email,
+                    Phone = @Phone,
+                    Location = @Location,
+                    UpdatedAt = CURRENT_TIMESTAMP
+                WHERE VkUserId = @VkUserId";
 
                     using var updateCmd = new SqliteCommand(updateSql, connection);
                     AddUserParameters(updateCmd, user);
@@ -485,19 +552,19 @@ namespace AdminPanel.Services
         private void AddUserParameters(SqliteCommand cmd, User user)
         {
             cmd.Parameters.AddWithValue("@VkUserId", user.VkUserId);
-            cmd.Parameters.AddWithValue("@FirstName", (object?)user.FirstName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@LastName", (object?)user.LastName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Username", (object?)user.Username ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@FirstName", user.FirstName ?? string.Empty);
+            cmd.Parameters.AddWithValue("@LastName", user.LastName ?? string.Empty);
+            cmd.Parameters.AddWithValue("@Username", user.Username ?? string.Empty);
             cmd.Parameters.AddWithValue("@IsActive", user.IsActive);
             cmd.Parameters.AddWithValue("@IsOnline", user.IsOnline);
             cmd.Parameters.AddWithValue("@LastActivity", user.LastActivity);
             cmd.Parameters.AddWithValue("@MessageCount", user.MessageCount);
             cmd.Parameters.AddWithValue("@RegistrationDate", user.RegistrationDate);
             cmd.Parameters.AddWithValue("@IsBanned", user.IsBanned);
-            cmd.Parameters.AddWithValue("@Status", (object?)user.Status ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Email", (object?)user.Email ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Phone", (object?)user.Phone ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Location", (object?)user.Location ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Status", user.Status ?? "user");
+            cmd.Parameters.AddWithValue("@Email", user.Email ?? string.Empty);
+            cmd.Parameters.AddWithValue("@Phone", user.Phone ?? string.Empty);
+            cmd.Parameters.AddWithValue("@Location", user.Location ?? string.Empty);
         }
 
         public async Task<bool> UpdateUserStatusAsync(int id, bool isActive, bool isBanned = false)
@@ -604,7 +671,7 @@ namespace AdminPanel.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
-                // Сначала получаем информацию о пользователе для логов
+                // Сначала получаем информацию о пользователя для логов
                 var user = await GetUserByIdAsync(id);
 
                 var sql = "DELETE FROM Users WHERE Id = @Id";
@@ -660,19 +727,19 @@ namespace AdminPanel.Services
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
 
                     users.Add(user);
@@ -712,6 +779,9 @@ namespace AdminPanel.Services
 
                 _logger.LogDebug("Добавлено сообщение от пользователя {VkUserId}: {MessageText}",
                     vkUserId, messageText.Length > 50 ? messageText.Substring(0, 50) + "..." : messageText);
+
+                // Обновляем счетчик сообщений пользователя
+                await IncrementMessageCountAsync(vkUserId);
             }
             catch (Exception ex)
             {
@@ -779,26 +849,16 @@ namespace AdminPanel.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
+                // Сначала получаем пользователей с сообщениями
                 var sql = @"
-                    SELECT 
-                        u.Id, u.VkUserId, u.FirstName, u.LastName, u.Username,
-                        u.IsActive, u.IsOnline, u.LastActivity, u.MessageCount,
-                        u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location,
-                        COUNT(m.Id) as MessageCount,
-                        MAX(m.MessageDate) as LastMessageDate,
-                        GROUP_CONCAT(
-                            CASE 
-                                WHEN LENGTH(m.MessageText) > 50 
-                                THEN SUBSTR(m.MessageText, 1, 50) || '...'
-                                ELSE m.MessageText
-                            END, ' || '
-                        ) as LastMessagesPreview
-                    FROM Users u
-                    LEFT JOIN Messages m ON u.VkUserId = m.VkUserId 
-                        AND m.MessageDate >= datetime('now', @DaysAgo)
-                    GROUP BY u.Id, u.VkUserId
-                    HAVING COUNT(m.Id) > 0
-                    ORDER BY MAX(m.MessageDate) DESC, u.LastActivity DESC";
+            SELECT DISTINCT
+                u.Id, u.VkUserId, u.FirstName, u.LastName, u.Username,
+                u.IsActive, u.IsOnline, u.LastActivity, u.MessageCount,
+                u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location
+            FROM Users u
+            INNER JOIN Messages m ON u.VkUserId = m.VkUserId
+            WHERE m.MessageDate >= datetime('now', @DaysAgo)
+            ORDER BY u.LastActivity DESC";
 
                 using var cmd = new SqliteCommand(sql, connection);
                 cmd.Parameters.AddWithValue("@DaysAgo", $"-{days} days");
@@ -806,37 +866,34 @@ namespace AdminPanel.Services
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    var user = new User
+                    var user = new UserWithMessages
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
 
-                    var messagesCount = reader.GetInt32(15);
-                    var lastMessageDate = reader.IsDBNull(16) ? DateTime.MinValue : reader.GetDateTime(16);
-                    var messagesPreview = reader.IsDBNull(17) ? null : reader.GetString(17);
+                    // Получаем сообщения этого пользователя
+                    var messages = await GetUserMessagesAsync(user.VkUserId, 5);
 
-                    usersWithMessages.Add(new UserWithMessages
-                    {
-                        User = user,
-                        MessagesCount = messagesCount,
-                        LastMessageDate = lastMessageDate,
-                        MessagesPreview = messagesPreview?.Split(" || ", StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>(),
-                        HasRecentMessages = messagesCount > 0
-                    });
+                    user.MessagesCount = messages.Count;
+                    user.LastMessageDate = messages.Any() ? messages.Max(m => m.MessageDate) : DateTime.MinValue;
+                    user.RecentMessages = messages;
+                    user.HasRecentMessages = messages.Any(m => m.MessageDate >= DateTime.Now.AddDays(-days));
+
+                    usersWithMessages.Add(user);
                 }
 
                 _logger.LogInformation("Найдено {Count} пользователей с перепиской за последние {Days} дней",
@@ -931,9 +988,9 @@ namespace AdminPanel.Services
                     stats.TopUsers.Add(new TopUserStats
                     {
                         VkUserId = topUsersReader.GetInt64(0),
-                        FirstName = topUsersReader.IsDBNull(1) ? null : topUsersReader.GetString(1),
-                        LastName = topUsersReader.IsDBNull(2) ? null : topUsersReader.GetString(2),
-                        Username = topUsersReader.IsDBNull(3) ? null : topUsersReader.GetString(3),
+                        FirstName = topUsersReader.IsDBNull(1) ? string.Empty : topUsersReader.GetString(1),
+                        LastName = topUsersReader.IsDBNull(2) ? string.Empty : topUsersReader.GetString(2),
+                        Username = topUsersReader.IsDBNull(3) ? string.Empty : topUsersReader.GetString(3),
                         MessageCount = topUsersReader.GetInt32(4),
                         LastMessageDate = topUsersReader.GetDateTime(5)
                     });
@@ -953,7 +1010,7 @@ namespace AdminPanel.Services
         /// <summary>
         /// Импортировать сообщения из бота
         /// </summary>
-        public async Task ImportBotMessagesAsync(List<BotMessage> botMessages)
+        public async Task ImportBotMessagesAsync(List<BotMessageImport> botMessages)
         {
             try
             {
@@ -976,9 +1033,9 @@ namespace AdminPanel.Services
                         var user = new User
                         {
                             VkUserId = vkUserId,
-                            FirstName = firstMessage.FirstName,
-                            LastName = firstMessage.LastName,
-                            Username = firstMessage.Username,
+                            FirstName = firstMessage.FirstName ?? "Неизвестный",
+                            LastName = firstMessage.LastName ?? "Пользователь",
+                            Username = firstMessage.Username ?? string.Empty,
                             IsActive = true,
                             IsOnline = false,
                             LastActivity = group.Max(m => m.MessageDate),
@@ -1061,19 +1118,19 @@ namespace AdminPanel.Services
                     {
                         Id = reader.GetInt32(0),
                         VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
                         IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
                         IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
                         LastActivity = reader.GetDateTime(7),
                         MessageCount = reader.GetInt32(8),
                         RegistrationDate = reader.GetDateTime(9),
                         IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? null : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? null : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? null : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
                     };
 
                     users.Add(user);
@@ -1119,5 +1176,126 @@ namespace AdminPanel.Services
                 return 0;
             }
         }
+
+        /// <summary>
+        /// Отправить сообщение пользователю через бота (имитация)
+        /// </summary>
+        public async Task<bool> SendMessageToUserAsync(long vkUserId, string message)
+        {
+            try
+            {
+                // Здесь должен быть реальный вызов API бота
+                // Пока просто сохраняем сообщение как от бота
+                await AddMessageAsync(vkUserId, message, false);
+
+                _logger.LogInformation("Отправлено сообщение пользователю {VkUserId}: {Message}",
+                    vkUserId, message.Length > 50 ? message.Substring(0, 50) + "..." : message);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при отправке сообщения пользователю {VkUserId}", vkUserId);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Получить сводку по пользователю (статистика активности)
+        /// </summary>
+        public async Task<UserSummary> GetUserSummaryAsync(long vkUserId)
+        {
+            var summary = new UserSummary { VkUserId = vkUserId };
+
+            try
+            {
+                var user = await GetUserAsync(vkUserId);
+                if (user == null)
+                    return summary;
+
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Получаем статистику сообщений за последние 7 дней
+                var weeklySql = @"
+                    SELECT 
+                        COUNT(*) as TotalMessages,
+                        SUM(CASE WHEN IsFromUser = 1 THEN 1 ELSE 0 END) as UserMessages,
+                        SUM(CASE WHEN IsFromUser = 0 THEN 1 ELSE 0 END) as BotMessages,
+                        DATE(MessageDate) as MessageDate
+                    FROM Messages 
+                    WHERE VkUserId = @VkUserId 
+                    AND MessageDate >= datetime('now', '-7 days')
+                    GROUP BY DATE(MessageDate)
+                    ORDER BY MessageDate DESC";
+
+                using var weeklyCmd = new SqliteCommand(weeklySql, connection);
+                weeklyCmd.Parameters.AddWithValue("@VkUserId", vkUserId);
+
+                using var weeklyReader = await weeklyCmd.ExecuteReaderAsync();
+                while (await weeklyReader.ReadAsync())
+                {
+                    var daily = new DailyActivity
+                    {
+                        Date = DateTime.Parse(weeklyReader.GetString(3)),
+                        TotalMessages = weeklyReader.GetInt32(0),
+                        UserMessages = weeklyReader.GetInt32(1),
+                        BotMessages = weeklyReader.GetInt32(2)
+                    };
+                    summary.WeeklyActivity.Add(daily);
+                }
+
+                // Среднее время ответа
+                var responseTimeSql = @"
+                    SELECT 
+                        AVG(JULIANDAY(m2.MessageDate) - JULIANDAY(m1.MessageDate)) * 24 * 60 * 60 as AvgResponseTimeSeconds
+                    FROM Messages m1
+                    LEFT JOIN Messages m2 ON m1.VkUserId = m2.VkUserId 
+                        AND m2.MessageDate > m1.MessageDate 
+                        AND m2.MessageDate < datetime(m1.MessageDate, '+30 minutes')
+                    WHERE m1.VkUserId = @VkUserId 
+                    AND m1.IsFromUser = 1 
+                    AND m2.IsFromUser = 0";
+
+                using var responseCmd = new SqliteCommand(responseTimeSql, connection);
+                responseCmd.Parameters.AddWithValue("@VkUserId", vkUserId);
+
+                var avgResponseSeconds = await responseCmd.ExecuteScalarAsync();
+                if (avgResponseSeconds != DBNull.Value)
+                {
+                    summary.AverageResponseTimeSeconds = Convert.ToDouble(avgResponseSeconds);
+                }
+
+                summary.UserInfo = user;
+                summary.IsLoaded = true;
+
+                _logger.LogDebug("Получена сводка по пользователю {VkUserId}", vkUserId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении сводки по пользователю {VkUserId}", vkUserId);
+            }
+
+            return summary;
+        }
+    }
+
+    // ==================== ДОПОЛНИТЕЛЬНЫЕ МОДЕЛИ ====================
+
+    public class UserSummary
+    {
+        public long VkUserId { get; set; }
+        public User? UserInfo { get; set; }
+        public List<DailyActivity> WeeklyActivity { get; set; } = new();
+        public double AverageResponseTimeSeconds { get; set; }
+        public bool IsLoaded { get; set; }
+    }
+
+    public class DailyActivity
+    {
+        public DateTime Date { get; set; }
+        public int TotalMessages { get; set; }
+        public int UserMessages { get; set; }
+        public int BotMessages { get; set; }
     }
 }

@@ -456,7 +456,7 @@ namespace AdminPanel.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync(cts.Token);
-                    apiStatus.ResponseContent = (content?.Length > 200 ? content.Substring(0, 200) + "..." : content) ?? "";
+                    apiStatus.ResponseContent = (content?.Length > 200 ? content.Substring(0, 200) + "..." : content) ?? string.Empty;
                     _logger.LogDebug("API бота отвечает: {StatusCode}", response.StatusCode);
                 }
                 else

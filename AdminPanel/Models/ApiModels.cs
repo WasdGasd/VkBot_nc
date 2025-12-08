@@ -39,7 +39,8 @@
         public string FullName => $"{FirstName} {LastName}".Trim();
     }
 
-    public class BotMessage
+    // Переименован в BotMessageImport чтобы избежать конфликта с Message из User.cs
+    public class BotMessageImport
     {
         public long VkUserId { get; set; }
         public string Text { get; set; } = string.Empty;

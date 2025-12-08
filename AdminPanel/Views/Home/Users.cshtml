@@ -1,335 +1,151 @@
 ﻿
-
 <div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0 text-gray-800">
-            <i class="fas fa-users text-primary mr-2"></i>Пользователи
-        </h1>
-        <div class="d-flex align-items-center">
-            <button type="button" class="btn btn-outline-primary btn-sm mr-2" id="refreshBtn">
-                <i class="fas fa-sync-alt"></i> Обновить
-            </button>
-            <div class="input-group input-group-sm mr-2" style="width: 250px;">
-                <input type="text" class="form-control" placeholder="Поиск пользователей..." id="searchInput">
-                <div class="input-group-append">
-                    <button class="btn btn-outline-secondary" type="button" id="searchBtn">
-                        <i class="fas fa-search"></i>
-                    </button>
+    <div class="row">
+        <div class="col-12">
+            <h1 class="h3 mb-4">Пользователи</h1>
+
+            <!-- Кнопки управления -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-primary" onclick="loadUsers()">
+                            <i class="fas fa-sync-alt"></i> Обновить
+                        </button>
+                        <button class="btn btn-success" onclick="createTestUser()">
+                            <i class="fas fa-plus"></i> Добавить тестового
+                        </button>
+                        <button class="btn btn-warning" onclick="createBulkUsers(10)">
+                            <i class="fas fa-users"></i> +10 пользователей
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <input type="text" id="searchInput" class="form-control" placeholder="Поиск по имени, фамилии, username...">
+                        <button class="btn btn-outline-primary" onclick="searchUsers()">
+                            <i class="fas fa-search"></i> Поиск
+                        </button>
+                    </div>
                 </div>
             </div>
-            <button type="button" class="btn btn-primary btn-sm" data-toggle="modal" data-target="#addUserModal">
-                <i class="fas fa-plus"></i> Добавить
-            </button>
-        </div>
-    </div>
 
-    <div class="row mb-4">
-        <!-- Статистика -->
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-primary shadow h-100 py-2">
-                <div class="card-body">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                                Всего пользователей
-                            </div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="totalUsers">0</div>
+            <!-- Статистика в реальном времени -->
+            <div class="row mb-4" id="statsContainer">
+                <div class="col-md-3 mb-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Всего пользователей</h5>
+                            <h2 id="totalUsers" class="mb-0">0</h2>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-users fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Активных</h5>
+                            <h2 id="activeUsers" class="mb-0">0</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Онлайн</h5>
+                            <h2 id="onlineUsers" class="mb-0">0</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card bg-warning text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title">Новых сегодня</h5>
+                            <h2 id="newToday" class="mb-0">0</h2>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-success shadow h-100 py-2">
-                <div class="card-body">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                                Активных
-                            </div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="activeUsers">0</div>
-                        </div>
-                        <div class="col-auto">
-                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
-                        </div>
+            <!-- Таблица пользователей -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Список пользователей</h5>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="filterDropdown" data-bs-toggle="dropdown">
+                            <i class="fas fa-filter"></i> Фильтр
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="setFilter('all')">Все пользователи</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setFilter('active')">Только активные</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setFilter('online')">Только онлайн</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setFilter('banned')">Забаненные</a></li>
+                        </ul>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-warning shadow h-100 py-2">
+                
                 <div class="card-body">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                                Онлайн сейчас
-                            </div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="onlineUsers">0</div>
+                    <!-- Индикатор загрузки -->
+                    <div id="loadingIndicator" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-circle fa-2x text-gray-300"></i>
-                        </div>
+                        <p class="mt-2 text-muted">Загрузка пользователей...</p>
                     </div>
-                </div>
-            </div>
-        </div>
 
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-info shadow h-100 py-2">
-                <div class="card-body">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                Новых сегодня
-                            </div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="newToday">0</div>
-                        </div>
-                        <div class="col-auto">
-                            <i class="fas fa-calendar-day fa-2x text-gray-300"></i>
-                        </div>
+                    <!-- Таблица -->
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped" id="usersTable" style="display: none;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="50">ID</th>
+                                    <th>Имя пользователя</th>
+                                    <th>VK ID</th>
+                                    <th>Статус</th>
+                                    <th>Сообщения</th>
+                                    <th>Дата регистрации</th>
+                                    <th>Последняя активность</th>
+                                    <th width="150">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <!-- Данные будут загружены через JS -->
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Таблица пользователей -->
-    <div class="card shadow mb-4">
-        <div class="card-header py-3 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary">Список пользователей</h6>
-            <div class="dropdown">
-                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                        id="filterDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    <i class="fas fa-filter"></i> Фильтр
-                </button>
-                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="filterDropdown">
-                    <a class="dropdown-item filter-option" href="#" data-filter="all">Все</a>
-                    <a class="dropdown-item filter-option" href="#" data-filter="active">Активные</a>
-                    <a class="dropdown-item filter-option" href="#" data-filter="online">Онлайн</a>
-                    <a class="dropdown-item filter-option" href="#" data-filter="banned">Заблокированные</a>
-                </div>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered" id="usersTable" width="100%" cellspacing="0">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Имя</th>
-                            <th>VK ID</th>
-                            <th>Username</th>
-                            <th>Сообщений</th>
-                            <th>Статус</th>
-                            <th>Дата регистрации</th>
-                            <th>Последняя активность</th>
-                            <th>Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody id="usersTableBody">
-                        <!-- Данные будут загружены через JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-            <div class="d-flex justify-content-between align-items-center mt-3">
-                <div class="dataTables_info" id="dataTable_info" role="status" aria-live="polite">
-                    Показано <span id="showingCount">0</span> из <span id="totalCount">0</span> записей
-                </div>
-                <div class="dataTables_paginate paging_simple_numbers" id="dataTable_paginate">
-                    <ul class="pagination" id="pagination">
-                        <!-- Пагинация будет добавлена через JavaScript -->
-                    </ul>
+                    <!-- Сообщение об отсутствии данных -->
+                    <div id="noDataMessage" class="text-center py-5" style="display: none;">
+                        <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">Пользователи не найдены</h5>
+                        <p class="text-muted">Нажмите "Добавить тестового" чтобы создать пользователей</p>
+                    </div>
+
+                    <!-- Пагинация -->
+                    <div id="paginationContainer" class="d-flex justify-content-between align-items-center mt-3" style="display: none;">
+                        <div class="text-muted">
+                            Показано <span id="currentCount">0</span> из <span id="totalCount">0</span> пользователей
+                        </div>
+                        <nav>
+                            <ul class="pagination mb-0" id="pagination">
+                                <!-- Пагинация будет сгенерирована через JS -->
+                            </ul>
+                        </nav>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Модальное окно добавления пользователя -->
-<div class="modal fade" id="addUserModal" tabindex="-1" role="dialog" aria-labelledby="addUserModalLabel" aria-hidden="true">
-    <div class="modal-dialog" role="document">
+<!-- Модальное окно для просмотра пользователя -->
+<div class="modal fade" id="userDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="addUserModalLabel">Добавить пользователя</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <h5 class="modal-title">Детали пользователя</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <form id="addUserForm">
-                    <div class="form-group">
-                        <label for="vkUserId">VK User ID</label>
-                        <input type="number" class="form-control" id="vkUserId" name="vkUserId" required>
-                        <small class="form-text text-muted">Числовой идентификатор пользователя VK</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="firstName">Имя</label>
-                        <input type="text" class="form-control" id="firstName" name="firstName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="lastName">Фамилия</label>
-                        <input type="text" class="form-control" id="lastName" name="lastName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="username">Username</label>
-                        <input type="text" class="form-control" id="username" name="username">
-                        <small class="form-text text-muted">Например: id123456 или username</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="email">Email</label>
-                        <input type="email" class="form-control" id="email" name="email">
-                    </div>
-                    <div class="form-group">
-                        <label for="phone">Телефон</label>
-                        <input type="tel" class="form-control" id="phone" name="phone">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
-                <button type="button" class="btn btn-primary" id="saveUserBtn">Сохранить</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Модальное окно редактирования пользователя -->
-<div class="modal fade" id="editUserModal" tabindex="-1" role="dialog" aria-labelledby="editUserModalLabel" aria-hidden="true">
-    <div class="modal-dialog" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="editUserModalLabel">Редактировать пользователя</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="editUserForm">
-                    <input type="hidden" id="editUserId" name="id">
-                    <div class="form-group">
-                        <label for="editVkUserId">VK User ID</label>
-                        <input type="number" class="form-control" id="editVkUserId" name="vkUserId" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label for="editFirstName">Имя</label>
-                        <input type="text" class="form-control" id="editFirstName" name="firstName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="editLastName">Фамилия</label>
-                        <input type="text" class="form-control" id="editLastName" name="lastName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="editUsername">Username</label>
-                        <input type="text" class="form-control" id="editUsername" name="username">
-                    </div>
-                    <div class="form-group">
-                        <label for="editEmail">Email</label>
-                        <input type="email" class="form-control" id="editEmail" name="email">
-                    </div>
-                    <div class="form-group">
-                        <label for="editPhone">Телефон</label>
-                        <input type="tel" class="form-control" id="editPhone" name="phone">
-                    </div>
-                    <div class="form-group">
-                        <label for="editLocation">Местоположение</label>
-                        <input type="text" class="form-control" id="editLocation" name="location">
-                    </div>
-                    <div class="form-group">
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="editIsActive" name="isActive">
-                            <label class="form-check-label" for="editIsActive">Активный</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="editIsBanned" name="isBanned">
-                            <label class="form-check-label" for="editIsBanned">Заблокирован</label>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Отмена</button>
-                <button type="button" class="btn btn-primary" id="updateUserBtn">Сохранить изменения</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Модальное окно детальной информации -->
-<div class="modal fade" id="userDetailsModal" tabindex="-1" role="dialog" aria-labelledby="userDetailsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="userDetailsModalLabel">Информация о пользователе</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="text-center mb-3">
-                            <div class="user-avatar bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center" 
-                                 style="width: 100px; height: 100px; font-size: 40px;">
-                                <i class="fas fa-user"></i>
-                            </div>
-                            <h5 class="mt-3" id="detailsFullName"></h5>
-                            <p class="text-muted mb-1" id="detailsUsername"></p>
-                            <span class="badge badge-success" id="detailsStatus"></span>
-                        </div>
-                    </div>
-                    <div class="col-md-8">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6 class="text-primary">Основная информация</h6>
-                                <ul class="list-unstyled">
-                                    <li class="mb-2"><strong>VK ID:</strong> <span id="detailsVkId"></span></li>
-                                    <li class="mb-2"><strong>Email:</strong> <span id="detailsEmail"></span></li>
-                                    <li class="mb-2"><strong>Телефон:</strong> <span id="detailsPhone"></span></li>
-                                    <li class="mb-2"><strong>Местоположение:</strong> <span id="detailsLocation"></span></li>
-                                </ul>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="text-primary">Статистика</h6>
-                                <ul class="list-unstyled">
-                                    <li class="mb-2"><strong>Сообщений:</strong> <span id="detailsMessageCount"></span></li>
-                                    <li class="mb-2"><strong>Регистрация:</strong> <span id="detailsRegDate"></span></li>
-                                    <li class="mb-2"><strong>Последняя активность:</strong> <span id="detailsLastActivity"></span></li>
-                                    <li class="mb-2"><strong>Сессий:</strong> <span id="detailsSessions"></span></li>
-                                </ul>
-                            </div>
-                        </div>
-                        <hr>
-                        <div class="row">
-                            <div class="col-12">
-                                <h6 class="text-primary">История сообщений</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-bordered" id="messageHistoryTable">
-                                        <thead>
-                                            <tr>
-                                                <th>Дата</th>
-                                                <th>Сообщение</th>
-                                                <th>Тип</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="messageHistoryBody">
-                                            <!-- История сообщений будет загружена через JavaScript -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Закрыть</button>
+            <div class="modal-body" id="userDetailsContent">
+                <!-- Контент будет загружен динамически -->
             </div>
         </div>
     </div>
@@ -337,559 +153,482 @@
 
 @section Scripts {
     <script>
+        // Конфигурация
         let currentPage = 1;
-        let pageSize = 10;
-        let currentFilter = 'all';
+        const pageSize = 20;
         let currentSearch = '';
+        let currentFilter = 'all';
+        let totalPages = 1;
 
-        $(document).ready(function() {
-            loadStatistics();
-            loadUsers();
+        // Утилиты для работы с DOM
+        function showElement(id) {
+            document.getElementById(id).style.display = '';
+        }
 
-            // Обработчики событий
-            $('#refreshBtn').click(function() {
-                loadStatistics();
-                loadUsers();
-            });
+        function hideElement(id) {
+            document.getElementById(id).style.display = 'none';
+        }
 
-            $('#searchBtn').click(function() {
-                currentSearch = $('#searchInput').val();
-                currentPage = 1;
-                loadUsers();
-            });
+        function setElementText(id, text) {
+            document.getElementById(id).textContent = text;
+        }
 
-            $('#searchInput').keypress(function(e) {
-                if (e.which === 13) {
-                    currentSearch = $(this).val();
-                    currentPage = 1;
-                    loadUsers();
-                }
-            });
-
-            $('.filter-option').click(function(e) {
-                e.preventDefault();
-                currentFilter = $(this).data('filter');
-                currentPage = 1;
-                loadUsers();
-            });
-
-            $('#saveUserBtn').click(function() {
-                saveUser();
-            });
-
-            $('#updateUserBtn').click(function() {
-                updateUser();
-            });
-
-            // Обновление статистики каждые 30 секунд
-            setInterval(loadStatistics, 30000);
-        });
-
-        function loadStatistics() {
-            $.ajax({
-                url: '/api/users/stats',
-                method: 'GET',
-                success: function(response) {
-                    if (response.success) {
-                        const data = response.data;
-                        $('#totalUsers').text(data.totalUsers);
-                        $('#activeUsers').text(data.activeUsers);
-                        $('#onlineUsers').text(data.onlineUsers);
-                        $('#newToday').text(data.newToday);
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка загрузки статистики:', error);
-                    showToast('error', 'Ошибка', 'Не удалось загрузить статистику');
-                }
+        // Форматирование даты
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
             });
         }
 
-        function loadUsers() {
-            const params = {
-                page: currentPage,
-                pageSize: pageSize,
-                filter: currentFilter,
-                search: currentSearch
-            };
-
-            $.ajax({
-                url: '/api/users',
-                method: 'GET',
-                data: params,
-                success: function(response) {
-                    if (response.success) {
-                        renderUsers(response.data.users);
-                        renderPagination(response.data.totalPages);
-                        updateCounters(response.data);
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка загрузки пользователей:', error);
-                    showToast('error', 'Ошибка', 'Не удалось загрузить пользователей');
-                }
-            });
+        // Форматирование статуса
+        function getStatusBadge(user) {
+            if (user.isBanned) {
+                return '<span class="badge bg-danger">Забанен</span>';
+            }
+            if (!user.isActive) {
+                return '<span class="badge bg-secondary">Неактивен</span>';
+            }
+            if (user.isOnline) {
+                return '<span class="badge bg-success">Онлайн</span>';
+            }
+            return '<span class="badge bg-primary">Активен</span>';
         }
 
-        function renderUsers(users) {
-            const tbody = $('#usersTableBody');
-            tbody.empty();
+        // Основная функция загрузки пользователей
+        async function loadUsers(page = 1) {
+            try {
+                // Показываем индикатор загрузки
+                hideElement('usersTable');
+                hideElement('noDataMessage');
+                hideElement('paginationContainer');
+                showElement('loadingIndicator');
 
-            if (users.length === 0) {
-                tbody.append(`
-                    <tr>
-                        <td colspan="9" class="text-center py-4">
-                            <i class="fas fa-user-slash fa-2x text-muted mb-2"></i>
-                            <p class="text-muted">Пользователи не найдены</p>
-                        </td>
-                    </tr>
-                `);
+                // Формируем URL
+                const params = new URLSearchParams({
+                    page: page,
+                    pageSize: pageSize,
+                    search: currentSearch,
+                    status: currentFilter,
+                    sort: 'newest'
+                });
+
+                // Делаем запрос
+                const response = await fetch(`/api/v1/users?${params}`);
+                if (!response.ok) {
+                    throw new Error(`Ошибка HTTP: ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayUsers(result.data);
+                    updateStats(result.data);
+                } else {
+                    showError('Ошибка загрузки данных');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки пользователей:', error);
+                showError('Не удалось загрузить пользователей: ' + error.message);
+            } finally {
+                hideElement('loadingIndicator');
+            }
+        }
+
+        // Отображение пользователей в таблице
+        function displayUsers(data) {
+            const users = data.users;
+            const tbody = document.getElementById('usersTableBody');
+            
+            // Очищаем таблицу
+            tbody.innerHTML = '';
+
+            if (!users || users.length === 0) {
+                // Показываем сообщение об отсутствии данных
+                hideElement('usersTable');
+                hideElement('paginationContainer');
+                showElement('noDataMessage');
                 return;
             }
 
-            users.forEach(function(user) {
-                const statusBadge = getUserStatusBadge(user);
-                const registrationDate = new Date(user.registrationDate).toLocaleDateString();
-                const lastActivity = user.lastActivity ? new Date(user.lastActivity).toLocaleString() : 'Никогда';
-
-                const row = `
-                    <tr data-user-id="${user.id}">
-                        <td>${user.id}</td>
-                        <td>${user.firstName} ${user.lastName}</td>
-                        <td>
-                            <a href="https://vk.com/${user.username || 'id' + user.vkUserId}" 
-                               target="_blank" class="text-primary">
-                                ${user.vkUserId}
-                            </a>
-                        </td>
-                        <td>${user.username || '-'}</td>
-                        <td>${user.messageCount}</td>
-                        <td>${statusBadge}</td>
-                        <td>${registrationDate}</td>
-                        <td>${lastActivity}</td>
-                        <td>
-                            <div class="btn-group btn-group-sm" role="group">
-                                <button type="button" class="btn btn-info btn-sm view-user" 
-                                        data-user-id="${user.id}" title="Просмотр">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button type="button" class="btn btn-primary btn-sm edit-user" 
-                                        data-user-id="${user.id}" title="Редактировать">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                ${user.isBanned ? 
-                                    `<button type="button" class="btn btn-success btn-sm unban-user" 
-                                            data-user-id="${user.id}" title="Разблокировать">
-                                        <i class="fas fa-unlock"></i>
-                                    </button>` : 
-                                    `<button type="button" class="btn btn-warning btn-sm ban-user" 
-                                            data-user-id="${user.id}" title="Заблокировать">
-                                        <i class="fas fa-ban"></i>
-                                    </button>`
-                                }
-                                <button type="button" class="btn btn-danger btn-sm delete-user" 
-                                        data-user-id="${user.id}" title="Удалить">
-                                    <i class="fas fa-trash"></i>
-                                </button>
+            // Заполняем таблицу
+            users.forEach(user => {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td><strong>${user.id}</strong></td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <div class="avatar me-3 bg-primary rounded-circle d-flex align-items-center justify-content-center" 
+                                 style="width: 40px; height: 40px;">
+                                <span class="text-white fw-bold">
+                                    ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
+                                </span>
                             </div>
-                        </td>
-                    </tr>
+                            <div>
+                                <div class="fw-bold">${user.firstName} ${user.lastName}</div>
+                                <div class="text-muted small">
+                                     ${user.username || 'без username'}
+                                    ${user.email ? `• ${user.email}` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <code class="bg-light p-1 rounded">${user.vkUserId}</code>
+                    </td>
+                    <td>
+                        ${getStatusBadge(user)}
+                        <div class="small text-muted mt-1">${user.status}</div>
+                    </td>
+                    <td>
+                        <span class="badge bg-info rounded-pill">${user.messageCount}</span>
+                    </td>
+                    <td>
+                        <div class="small">${formatDate(user.registrationDate)}</div>
+                    </td>
+                    <td>
+                        <div class="small">${formatDate(user.lastActivity)}</div>
+                    </td>
+                    <td>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-outline-primary" onclick="viewUser(${user.id})" title="Просмотр">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="editUser(${user.id})" title="Редактировать">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteUser(${user.id})" title="Удалить">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
                 `;
-                tbody.append(row);
+                
+                tbody.appendChild(row);
             });
 
-            // Назначаем обработчики событий для кнопок
-            $('.view-user').click(function() {
-                const userId = $(this).data('user-id');
-                viewUser(userId);
-            });
-
-            $('.edit-user').click(function() {
-                const userId = $(this).data('user-id');
-                editUser(userId);
-            });
-
-            $('.ban-user').click(function() {
-                const userId = $(this).data('user-id');
-                banUser(userId);
-            });
-
-            $('.unban-user').click(function() {
-                const userId = $(this).data('user-id');
-                unbanUser(userId);
-            });
-
-            $('.delete-user').click(function() {
-                const userId = $(this).data('user-id');
-                deleteUser(userId);
-            });
+            // Показываем таблицу и пагинацию
+            showElement('usersTable');
+            showElement('paginationContainer');
+            
+            // Обновляем пагинацию
+            updatePagination(data.page, data.totalPages);
+            
+            // Обновляем счетчики
+            setElementText('currentCount', users.length);
+            setElementText('totalCount', data.totalCount);
         }
 
-        function renderPagination(totalPages) {
-            const pagination = $('#pagination');
-            pagination.empty();
+        // Обновление статистики
+        function updateStats(data) {
+            setElementText('totalUsers', data.totalCount);
+            setElementText('activeUsers', data.activeCount || 0);
+            setElementText('onlineUsers', data.onlineCount || 0);
+            setElementText('newToday', data.newTodayCount || 0);
+        }
+
+        // Обновление пагинации
+        function updatePagination(currentPage, totalPages) {
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
 
             if (totalPages <= 1) return;
 
             // Кнопка "Назад"
-            const prevDisabled = currentPage === 1 ? 'disabled' : '';
-            pagination.append(`
-                <li class="page-item ${prevDisabled}">
-                    <a class="page-link" href="#" data-page="${currentPage - 1}">
-                        <i class="fas fa-chevron-left"></i>
-                    </a>
-                </li>
-            `);
+            const prevLi = document.createElement('li');
+            prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+            prevLi.innerHTML = `
+                <a class="page-link" href="#" ${currentPage > 1 ? `onclick="changePage(${currentPage - 1})"` : ''}>
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+            `;
+            pagination.appendChild(prevLi);
 
-            // Номера страниц
-            const startPage = Math.max(1, currentPage - 2);
-            const endPage = Math.min(totalPages, currentPage + 2);
+            // Страницы
+            const maxVisible = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+            if (endPage - startPage + 1 < maxVisible) {
+                startPage = Math.max(1, endPage - maxVisible + 1);
+            }
 
             for (let i = startPage; i <= endPage; i++) {
-                const active = i === currentPage ? 'active' : '';
-                pagination.append(`
-                    <li class="page-item ${active}">
-                        <a class="page-link" href="#" data-page="${i}">${i}</a>
-                    </li>
-                `);
+                const pageLi = document.createElement('li');
+                pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+                pageLi.innerHTML = `
+                    <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
+                `;
+                pagination.appendChild(pageLi);
             }
 
             // Кнопка "Вперед"
-            const nextDisabled = currentPage === totalPages ? 'disabled' : '';
-            pagination.append(`
-                <li class="page-item ${nextDisabled}">
-                    <a class="page-link" href="#" data-page="${currentPage + 1}">
-                        <i class="fas fa-chevron-right"></i>
-                    </a>
-                </li>
-            `);
+            const nextLi = document.createElement('li');
+            nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+            nextLi.innerHTML = `
+                <a class="page-link" href="#" ${currentPage < totalPages ? `onclick="changePage(${currentPage + 1})"` : ''}>
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+            `;
+            pagination.appendChild(nextLi);
+        }
 
-            // Обработчики кликов на пагинации
-            $('.page-link[data-page]').click(function(e) {
-                e.preventDefault();
-                const page = parseInt($(this).data('page'));
-                if (page > 0 && page <= totalPages) {
-                    currentPage = page;
-                    loadUsers();
+        // Смена страницы
+        function changePage(page) {
+            currentPage = page;
+            loadUsers(page);
+        }
+
+        // Поиск пользователей
+        function searchUsers() {
+            currentSearch = document.getElementById('searchInput').value;
+            currentPage = 1;
+            loadUsers(currentPage);
+        }
+
+        // Установка фильтра
+        function setFilter(filter) {
+            currentFilter = filter;
+            currentPage = 1;
+            loadUsers(currentPage);
+        }
+
+        // Просмотр пользователя
+        async function viewUser(userId) {
+            try {
+                const response = await fetch(`/api/v1/users/${userId}`);
+                if (!response.ok) throw new Error('Пользователь не найден');
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    const user = result.data.user;
+                    const content = document.getElementById('userDetailsContent');
+                    
+                    content.innerHTML = `
+                        <div class="row">
+                            <div class="col-md-4 text-center mb-4">
+                                <div class="avatar-lg bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" 
+                                     style="width: 100px; height: 100px;">
+                                    <span class="text-white fs-2 fw-bold">
+                                        ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
+                                    </span>
+                                </div>
+                                <h4>${user.firstName} ${user.lastName}</h4>
+                                <p class="text-muted">${user.username || 'без username'}</p>
+                                <div class="mt-3">
+                                    ${getStatusBadge(user)}
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-8">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">ID:</label>
+                                        <div class="fw-bold">${user.id}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">VK ID:</label>
+                                        <div><code>${user.vkUserId}</code></div>
+                                    </div>
+                                    
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Email:</label>
+                                        <div>${user.email || '<span class="text-muted">Не указан</span>'}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Телефон:</label>
+                                        <div>${user.phone || '<span class="text-muted">Не указан</span>'}</div>
+                                    </div>
+                                    
+                                    <div class="col-md-12 mb-3">
+                                        <label class="form-label text-muted">Местоположение:</label>
+                                        <div>${user.location || '<span class="text-muted">Не указано</span>'}</div>
+                                    </div>
+                                    
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label text-muted">Сообщений:</label>
+                                        <div><span class="badge bg-info">${user.messageCount}</span></div>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label text-muted">Дата регистрации:</label>
+                                        <div>${formatDate(user.registrationDate)}</div>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label text-muted">Последняя активность:</label>
+                                        <div>${formatDate(user.lastActivity)}</div>
+                                    </div>
+                                    
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Активен:</label>
+                                        <div>${user.isActive ? '✅ Да' : '❌ Нет'}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Онлайн:</label>
+                                        <div>${user.isOnline ? '✅ Да' : '❌ Нет'}</div>
+                                    </div>
+                                    
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Забанен:</label>
+                                        <div>${user.isBanned ? '❌ Да' : '✅ Нет'}</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label text-muted">Тип:</label>
+                                        <div><span class="badge bg-secondary">${user.status}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
+                    modal.show();
                 }
-            });
-        }
-
-        function updateCounters(data) {
-            $('#showingCount').text(data.users.length);
-            $('#totalCount').text(data.totalCount);
-        }
-
-        function getUserStatusBadge(user) {
-            if (user.isBanned) {
-                return '<span class="badge badge-danger">Заблокирован</span>';
-            } else if (user.isOnline) {
-                return '<span class="badge badge-success">Онлайн</span>';
-            } else if (user.isActive) {
-                return '<span class="badge badge-primary">Активен</span>';
-            } else {
-                return '<span class="badge badge-secondary">Неактивен</span>';
+            } catch (error) {
+                alert('Ошибка при загрузке данных пользователя: ' + error.message);
             }
         }
 
-        function viewUser(userId) {
-            $.ajax({
-                url: `/api/users/${userId}`,
-                method: 'GET',
-                success: function(response) {
-                    if (response.success) {
-                        const user = response.data;
-                        populateUserDetails(user);
-                        loadUserMessageHistory(userId);
-                        $('#userDetailsModal').modal('show');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка загрузки данных пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось загрузить данные пользователя');
+        // Создание тестового пользователя
+        async function createTestUser() {
+            try {
+                const response = await fetch('/api/v1/users/test', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Тестовый пользователь создан!');
+                    loadUsers(currentPage);
+                } else {
+                    alert('Ошибка: ' + result.message);
                 }
-            });
-        }
-
-        function populateUserDetails(user) {
-            $('#detailsFullName').text(`${user.firstName} ${user.lastName}`);
-            $('#detailsUsername').text(user.username ? ${user.username} : '');
-            $('#detailsVkId').text(user.vkUserId);
-            $('#detailsEmail').text(user.email || '-');
-            $('#detailsPhone').text(user.phone || '-');
-            $('#detailsLocation').text(user.location || '-');
-            $('#detailsMessageCount').text(user.messageCount);
-            $('#detailsRegDate').text(new Date(user.registrationDate).toLocaleDateString());
-            $('#detailsLastActivity').text(user.lastActivity ? 
-                new Date(user.lastActivity).toLocaleString() : 'Никогда');
-            $('#detailsSessions').text(user.sessionCount || 0);
-            
-            // Статус
-            let statusText = '';
-            let statusClass = '';
-            if (user.isBanned) {
-                statusText = 'Заблокирован';
-                statusClass = 'badge-danger';
-            } else if (user.isOnline) {
-                statusText = 'Онлайн';
-                statusClass = 'badge-success';
-            } else if (user.isActive) {
-                statusText = 'Активен';
-                statusClass = 'badge-primary';
-            } else {
-                statusText = 'Неактивен';
-                statusClass = 'badge-secondary';
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
             }
-            $('#detailsStatus').text(statusText).removeClass().addClass(`badge ${statusClass}`);
         }
 
-        function loadUserMessageHistory(userId) {
-            $.ajax({
-                url: `/api/users/${userId}/messages`,
-                method: 'GET',
-                success: function(response) {
-                    if (response.success) {
-                        renderMessageHistory(response.data);
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка загрузки истории сообщений:', error);
-                    $('#messageHistoryBody').html(`
-                        <tr>
-                            <td colspan="3" class="text-center text-muted py-2">
-                                Не удалось загрузить историю сообщений
-                            </td>
-                        </tr>
-                    `);
+        // Создание нескольких тестовых пользователей
+        async function createBulkUsers(count) {
+            try {
+                const response = await fetch(`/api/v1/users/bulk-test?count=${count}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`Создано ${result.data.count} тестовых пользователей!`);
+                    loadUsers(currentPage);
+                } else {
+                    alert('Ошибка: ' + result.message);
                 }
-            });
-        }
-
-        function renderMessageHistory(messages) {
-            const tbody = $('#messageHistoryBody');
-            tbody.empty();
-
-            if (messages.length === 0) {
-                tbody.append(`
-                    <tr>
-                        <td colspan="3" class="text-center text-muted py-4">
-                            <i class="fas fa-comment-slash fa-2x mb-2"></i>
-                            <p>Нет сообщений</p>
-                        </td>
-                    </tr>
-                `);
-                return;
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
             }
-
-            messages.forEach(function(message) {
-                const date = new Date(message.timestamp).toLocaleString();
-                const typeBadge = message.type === 'incoming' ? 
-                    '<span class="badge badge-info">Входящее</span>' : 
-                    '<span class="badge badge-success">Исходящее</span>';
-
-                const row = `
-                    <tr>
-                        <td>${date}</td>
-                        <td>${message.text || '-'}</td>
-                        <td>${typeBadge}</td>
-                    </tr>
-                `;
-                tbody.append(row);
-            });
         }
 
+        // Редактирование пользователя (заглушка)
         function editUser(userId) {
-            $.ajax({
-                url: `/api/users/${userId}`,
-                method: 'GET',
-                success: function(response) {
-                    if (response.success) {
-                        const user = response.data;
-                        $('#editUserId').val(user.id);
-                        $('#editVkUserId').val(user.vkUserId);
-                        $('#editFirstName').val(user.firstName);
-                        $('#editLastName').val(user.lastName);
-                        $('#editUsername').val(user.username || '');
-                        $('#editEmail').val(user.email || '');
-                        $('#editPhone').val(user.phone || '');
-                        $('#editLocation').val(user.location || '');
-                        $('#editIsActive').prop('checked', user.isActive);
-                        $('#editIsBanned').prop('checked', user.isBanned);
-                        $('#editUserModal').modal('show');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка загрузки данных пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось загрузить данные пользователя');
-                }
-            });
+            alert(`Редактирование пользователя ID: ${userId}\n(функция в разработке)`);
         }
 
-        function updateUser() {
-            const formData = {
-                id: $('#editUserId').val(),
-                firstName: $('#editFirstName').val(),
-                lastName: $('#editLastName').val(),
-                username: $('#editUsername').val(),
-                email: $('#editEmail').val(),
-                phone: $('#editPhone').val(),
-                location: $('#editLocation').val(),
-                isActive: $('#editIsActive').prop('checked'),
-                isBanned: $('#editIsBanned').prop('checked')
-            };
-
-            $.ajax({
-                url: `/api/users/${formData.id}`,
-                method: 'PUT',
-                contentType: 'application/json',
-                data: JSON.stringify(formData),
-                success: function(response) {
-                    if (response.success) {
-                        $('#editUserModal').modal('hide');
-                        showToast('success', 'Успех', 'Пользователь обновлен');
-                        loadUsers();
-                    } else {
-                        showToast('error', 'Ошибка', response.message || 'Не удалось обновить пользователя');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка обновления пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось обновить пользователя');
-                }
-            });
-        }
-
-        function saveUser() {
-            const formData = {
-                vkUserId: parseInt($('#vkUserId').val()),
-                firstName: $('#firstName').val(),
-                lastName: $('#lastName').val(),
-                username: $('#username').val(),
-                email: $('#email').val(),
-                phone: $('#phone').val()
-            };
-
-            $.ajax({
-                url: '/api/users',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(formData),
-                success: function(response) {
-                    if (response.success) {
-                        $('#addUserModal').modal('hide');
-                        $('#addUserForm')[0].reset();
-                        showToast('success', 'Успех', 'Пользователь добавлен');
-                        loadStatistics();
-                        loadUsers();
-                    } else {
-                        showToast('error', 'Ошибка', response.message || 'Не удалось добавить пользователя');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка добавления пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось добавить пользователя');
-                }
-            });
-        }
-
-        function banUser(userId) {
-            if (!confirm('Вы уверены, что хотите заблокировать этого пользователя?')) {
+        // Удаление пользователя
+        async function deleteUser(userId) {
+            if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
                 return;
             }
-
-            const reason = prompt('Укажите причину блокировки:', 'Нарушение правил');
-
-            $.ajax({
-                url: `/api/users/${userId}/ban`,
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ reason: reason }),
-                success: function(response) {
-                    if (response.success) {
-                        showToast('success', 'Успех', 'Пользователь заблокирован');
-                        loadUsers();
-                    } else {
-                        showToast('error', 'Ошибка', response.message || 'Не удалось заблокировать пользователя');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка блокировки пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось заблокировать пользователя');
+            
+            try {
+                const response = await fetch(`/api/v1/users/${userId}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Пользователь удален');
+                    loadUsers(currentPage);
+                } else {
+                    alert('Ошибка: ' + result.message);
                 }
-            });
-        }
-
-        function unbanUser(userId) {
-            if (!confirm('Вы уверены, что хотите разблокировать этого пользователя?')) {
-                return;
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
             }
-
-            $.ajax({
-                url: `/api/users/${userId}/unban`,
-                method: 'POST',
-                success: function(response) {
-                    if (response.success) {
-                        showToast('success', 'Успех', 'Пользователь разблокирован');
-                        loadUsers();
-                    } else {
-                        showToast('error', 'Ошибка', response.message || 'Не удалось разблокировать пользователя');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка разблокировки пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось разблокировать пользователя');
-                }
-            });
         }
 
-        function deleteUser(userId) {
-            if (!confirm('Вы уверены, что хотите удалить этого пользователя? Это действие нельзя отменить.')) {
-                return;
-            }
-
-            $.ajax({
-                url: `/api/users/${userId}`,
-                method: 'DELETE',
-                success: function(response) {
-                    if (response.success) {
-                        showToast('success', 'Успех', 'Пользователь удален');
-                        loadStatistics();
-                        loadUsers();
-                    } else {
-                        showToast('error', 'Ошибка', response.message || 'Не удалось удалить пользователя');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('Ошибка удаления пользователя:', error);
-                    showToast('error', 'Ошибка', 'Не удалось удалить пользователя');
-                }
-            });
-        }
-
-        function showToast(type, title, message) {
-            // Простая реализация уведомлений
-            const toast = $(`
-                <div class="toast bg-${type === 'success' ? 'success' : 'danger'} text-white" 
-                     role="alert" aria-live="assertive" aria-atomic="true" style="position: fixed; top: 20px; right: 20px; z-index: 9999;">
-                    <div class="toast-header bg-${type === 'success' ? 'success' : 'danger'} text-white">
-                        <strong class="mr-auto">${title}</strong>
-                        <button type="button" class="ml-2 mb-1 close text-white" data-dismiss="toast" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                    <div class="toast-body">
-                        ${message}
-                    </div>
+        // Показать ошибку
+        function showError(message) {
+            hideElement('usersTable');
+            hideElement('paginationContainer');
+            hideElement('noDataMessage');
+            
+            const container = document.getElementById('usersTableBody').parentElement;
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                    <button class="btn btn-sm btn-outline-danger ms-3" onclick="loadUsers()">
+                        Попробовать снова
+                    </button>
                 </div>
-            `);
-
-            $('body').append(toast);
-            toast.toast({ delay: 3000 });
-            toast.toast('show');
-
-            toast.on('hidden.bs.toast', function() {
-                $(this).remove();
-            });
+            `;
         }
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Загружаем пользователей
+            loadUsers();
+            
+            // Настройка поиска по Enter
+            document.getElementById('searchInput').addEventListener('keyup', function(event) {
+                if (event.key === 'Enter') {
+                    searchUsers();
+                }
+            });
+            
+            // Автообновление каждые 30 секунд
+            setInterval(() => {
+                loadUsers(currentPage);
+            }, 30000);
+        });
     </script>
+
+    <style>
+        .avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .avatar-lg {
+            width: 100px;
+            height: 100px;
+            font-size: 2rem;
+        }
+        
+        .table th {
+            border-top: none;
+            font-weight: 600;
+        }
+        
+        .card {
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .badge {
+            font-size: 0.85em;
+            padding: 0.35em 0.65em;
+        }
+    </style>
 }

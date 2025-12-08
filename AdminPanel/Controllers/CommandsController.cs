@@ -189,7 +189,7 @@ namespace AdminPanel.Controllers
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("уже существует"))
             {
-                _logger.LogWarning(ex, "Попытка создать дубликат команды");
+                _logger.LogInformation("Попытка создать дубликат команды: {CommandName}", request.Name);
 
                 return Conflict(new
                 {

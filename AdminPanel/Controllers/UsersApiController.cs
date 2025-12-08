@@ -33,7 +33,8 @@ namespace AdminPanel.Controllers
 
             try
             {
-                var dbPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
+                var dbPath = _configuration["ConnectionStrings:DefaultConnection"]
+             ?? @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
                 var fileExists = System.IO.File.Exists(dbPath);
                 var fileSize = fileExists ? new FileInfo(dbPath).Length : 0;
 
@@ -80,7 +81,7 @@ namespace AdminPanel.Controllers
                 }
 
                 // Пробуем получить пользователей через сервис
-                AdminPanel.Models.UserListResponse? usersResponse = null;
+                UserListResponse? usersResponse = null;
                 bool canGetUsers = false;
                 string? serviceError = null;
 
@@ -181,7 +182,20 @@ namespace AdminPanel.Controllers
                     return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
                 }
 
-                return Ok(new ApiResponse(true, "Пользователь найден", user));
+                // Получаем сообщения пользователя
+                var messages = await _userService.GetUserMessagesAsync(user.VkUserId, 10);
+
+                return Ok(new ApiResponse(true, "Пользователь найден", new
+                {
+                    user,
+                    recentMessages = messages,
+                    statistics = new
+                    {
+                        totalMessages = user.MessageCount,
+                        isOnline = user.IsOnline,
+                        lastActivity = user.LastActivity
+                    }
+                }));
             }
             catch (Exception ex)
             {
@@ -282,6 +296,7 @@ namespace AdminPanel.Controllers
 
                 existingUser.IsActive = user.IsActive;
                 existingUser.IsBanned = user.IsBanned;
+                existingUser.IsOnline = user.IsOnline;
 
                 var updatedUser = await _userService.AddOrUpdateUserAsync(existingUser);
 
@@ -607,6 +622,53 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/{id}/send-message
+        [HttpPost("{id:int}/send-message")]
+        public async Task<IActionResult> SendMessageToUser(
+            int id,
+            [FromBody] SendMessageRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/send-message", id);
+
+            try
+            {
+                // Получаем пользователя
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                // Валидация
+                if (string.IsNullOrWhiteSpace(request.Message))
+                {
+                    return BadRequest(new ApiResponse(false, "Текст сообщения не может быть пустым"));
+                }
+
+                // Отправляем сообщение через бота (имитация)
+                var success = await _userService.SendMessageToUserAsync(user.VkUserId, request.Message);
+
+                if (!success)
+                {
+                    return StatusCode(500, new ApiResponse(false, "Не удалось отправить сообщение"));
+                }
+
+                return Ok(new ApiResponse(true, "Сообщение отправлено пользователю", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    userName = $"{user.FirstName} {user.LastName}",
+                    messagePreview = request.Message.Length > 50 ? request.Message.Substring(0, 50) + "..." : request.Message,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при отправке сообщения пользователю ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
         // GET: api/v1/users/messages/stats
         [HttpGet("messages/stats")]
         public async Task<IActionResult> GetMessagesStats(
@@ -713,6 +775,45 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/{id}/summary
+        [HttpGet("{id:int}/summary")]
+        public async Task<IActionResult> GetUserSummary(int id)
+        {
+            _logger.LogInformation("GET /api/v1/users/{Id}/summary - сводка по пользователю", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                var summary = await _userService.GetUserSummaryAsync(user.VkUserId);
+
+                return Ok(new ApiResponse(true, "Сводка по пользователю получена", new
+                {
+                    userInfo = summary.UserInfo,
+                    weeklyActivity = summary.WeeklyActivity,
+                    averageResponseTime = summary.AverageResponseTimeSeconds > 0
+                        ? $"{Math.Round(summary.AverageResponseTimeSeconds / 60, 1)} мин"
+                        : "Нет данных",
+                    messageStats = new
+                    {
+                        total = user.MessageCount,
+                        lastActivity = user.LastActivity.ToString("yyyy-MM-dd HH:mm:ss"),
+                        isOnline = user.IsOnline
+                    },
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении сводки по пользователю ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
         // POST: api/v1/users/{id}/test-messages
         [HttpPost("{id:int}/test-messages")]
         public async Task<IActionResult> AddTestMessages(int id, [FromQuery] int count = 10)
@@ -747,6 +848,20 @@ namespace AdminPanel.Controllers
                     "До скольки вы работаете?"
                 };
 
+                var botResponses = new[]
+                {
+                    "Здравствуйте! Чем могу помочь?",
+                    "Рады вас видеть!",
+                    "Спасибо за вопрос!",
+                    "Будем рады помочь!",
+                    "Это отличный выбор!",
+                    "У нас для вас хорошие новости!",
+                    "Ждем вас с нетерпением!",
+                    "Обращайтесь в любое время!",
+                    "Всегда к вашим услугам!",
+                    "Приятного отдыха!"
+                };
+
                 var addedCount = 0;
                 for (int i = 0; i < count; i++)
                 {
@@ -759,16 +874,6 @@ namespace AdminPanel.Controllers
                     // Ответ бота (если сообщение было от пользователя)
                     if (isFromUser && random.Next(2) == 0) // 50% шанс ответа
                     {
-                        var botResponses = new[]
-                        {
-                            "Спасибо за вопрос!",
-                            "Рады помочь!",
-                            "Обращайтесь еще!",
-                            "Хорошего дня!",
-                            "Отличный вопрос!",
-                            "Благодарим за обращение!"
-                        };
-
                         await _userService.AddMessageAsync(
                             user.VkUserId,
                             botResponses[random.Next(botResponses.Length)],
@@ -802,7 +907,7 @@ namespace AdminPanel.Controllers
 
         // POST: api/v1/users/import-messages
         [HttpPost("import-messages")]
-        public async Task<IActionResult> ImportMessages([FromBody] List<BotMessage> messages)
+        public async Task<IActionResult> ImportMessages([FromBody] List<BotMessageImport> messages)
         {
             _logger.LogInformation("POST /api/v1/users/import-messages - импорт {Count} сообщений", messages.Count);
 
@@ -1093,5 +1198,10 @@ namespace AdminPanel.Controllers
     {
         public string MessageText { get; set; } = string.Empty;
         public bool? IsFromUser { get; set; } = true;
+    }
+
+    public class SendMessageRequest
+    {
+        public string Message { get; set; } = string.Empty;
     }
 }
