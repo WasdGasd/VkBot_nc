@@ -29,28 +29,58 @@ namespace AdminPanel.Controllers
         {
             try
             {
+                _logger.LogInformation("Запрашиваем статистику у бота...");
+
                 // 1. Пробуем получить от бота
-                var response = await _httpClient.GetAsync($"{_botSettings.BaseUrl}/api/stats/memory");
+                var botUrl = $"{_botSettings.BaseUrl}/api/stats/memory";
+                var response = await _httpClient.GetAsync(botUrl);
 
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();
-                    var result = JsonSerializer.Deserialize<BotStatsResponse>(content);
+                    _logger.LogInformation($"Ответ бота: {content}");
 
-                    return Ok(new
+                    // Парсим JSON напрямую
+                    using var doc = JsonDocument.Parse(content);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("data", out var dataElement))
                     {
-                        success = true,
-                        message = "📊 Статистика из памяти бота",
-                        data = new
+                        // Получаем общую статистику
+                        int totalUsers = 0, activeUsers = 0, onlineUsers = 0, messagesToday = 0, commandsToday = 0;
+
+                        if (dataElement.TryGetProperty("general", out var generalElement))
                         {
-                            totalUsers = result?.Data?.General?.TotalUsers ?? 0,
-                            activeUsers = result?.Data?.General?.ActiveUsersToday ?? 0,
-                            onlineUsers = result?.Data?.General?.OnlineUsers ?? 0,
-                            messagesToday = result?.Data?.General?.MessagesLastHour ?? 0,
-                            commandsToday = result?.Data?.Commands?.Values.Sum() ?? 0
-                        },
-                        source = "BOT_MEMORY"
-                    });
+                            totalUsers = generalElement.TryGetProperty("totalUsers", out var t) ? t.GetInt32() : 0;
+                            activeUsers = generalElement.TryGetProperty("activeUsersToday", out var a) ? a.GetInt32() : 0;
+                            onlineUsers = generalElement.TryGetProperty("onlineUsers", out var o) ? o.GetInt32() : 0;
+                            messagesToday = generalElement.TryGetProperty("messagesLastHour", out var m) ? m.GetInt32() : 0;
+                        }
+
+                        // Считаем команды
+                        if (dataElement.TryGetProperty("commands", out var commandsElement))
+                        {
+                            foreach (var command in commandsElement.EnumerateObject())
+                            {
+                                commandsToday += command.Value.GetInt32();
+                            }
+                        }
+
+                        return Ok(new
+                        {
+                            success = true,
+                            message = "📊 Статистика из памяти бота",
+                            data = new
+                            {
+                                totalUsers,
+                                activeUsers,
+                                onlineUsers,
+                                messagesToday,
+                                commandsToday
+                            },
+                            source = "BOT_MEMORY"
+                        });
+                    }
                 }
 
                 // 2. Если бот недоступен

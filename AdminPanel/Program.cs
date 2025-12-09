@@ -57,7 +57,7 @@ builder.Services.Configure<DatabaseConfig>(builder.Configuration.GetSection("Dat
 // КОНФИГУРАЦИЯ ПУТЕЙ К БОТУ
 builder.Services.Configure<BotPathsConfig>(options =>
 {
-    options.BotProjectPath = @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti";
+    options.BotProjectPath = @"C:\\Users\\pog\\Desktop\\VkBot_nc\\VKBot_nordciti";
     options.DatabaseName = "vkbot.db";
 });
 

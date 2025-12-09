@@ -17,7 +17,8 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: MyAllowSpecificOrigins,
                       policy =>
                       {
-                          policy.AllowAnyOrigin()
+                          policy.WithOrigins("http://localhost:5215")
+                          .AllowAnyOrigin()
                                 .AllowAnyHeader()
                                 .WithMethods("POST", "GET", "PUT", "DELETE", "UPDATE")
                                 .SetPreflightMaxAge(TimeSpan.FromSeconds(5));

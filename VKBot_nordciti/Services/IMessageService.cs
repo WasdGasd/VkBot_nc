@@ -6,5 +6,6 @@ namespace VKBot_nordciti.Services
     {
         Task ProcessMessageAsync(VkMessage message);
         Task HandleMessageAllowEvent(long userId);
+        Task ProcessButtonClickAsync(long userId, string eventId, string payload);
     }
 }

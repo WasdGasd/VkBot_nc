@@ -52,6 +52,7 @@ namespace VKBot_nordciti.Services
 
                 _logger.Info($"Processing message - FromId: {fromId}, PeerId: {peerId}, Text: '{text}'");
 
+
                 // ============ Синхронизация пользователя ============
                 try
                 {
@@ -962,5 +963,69 @@ namespace VKBot_nordciti.Services
             public int Count { get; set; }
             public int Load { get; set; }
         }
-    }
-}
+
+
+    
+            public async Task ProcessButtonClickAsync(long userId, string eventId, string payload)
+        {
+            try
+            {
+                _logger.Info($"Processing button click - UserId: {userId}, EventId: {eventId}, Payload: {payload}");
+
+                // Регистрируем в статистике
+                _statsService.RegisterCommandUsage(userId, $"button_{eventId}");
+                _statsService.UpdateUserActivity(userId, true);
+
+                // Обрабатываем нажатие кнопки
+                string responseText = $"Вы нажали кнопку: {eventId}";
+                string keyboard = _kb.MainMenu();
+
+                // Определяем что делать по eventId
+                switch (eventId.ToLower())
+                {
+                    case "tickets":
+                    case "билеты":
+                        responseText = "🎫 Раздел билетов:\n\nВыберите дату:";
+                        keyboard = _kb.TicketsDateKeyboard();
+                        break;
+
+                    case "load":
+                    case "загруженность":
+                        responseText = await GetParkLoadAsync();
+                        keyboard = _kb.BackToMain();
+                        break;
+
+                    case "info":
+                    case "информация":
+                        responseText = "ℹ️ Информация о центре";
+                        keyboard = _kb.InfoMenu();
+                        break;
+
+                    case "start":
+                    case "начать":
+                        responseText = "🎪 Добро пожаловать в ЦЕНТР YES!";
+                        keyboard = _kb.MainMenu();
+                        break;
+                }
+
+                // Отправляем сообщение
+                await _vk.SendMessageAsync(userId, responseText, keyboard);
+
+                _logger.Info($"Button processed successfully for user {userId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, $"Error processing button click for user {userId}");
+
+                // Пробуем отправить сообщение об ошибке
+                try
+                {
+                    await _vk.SendMessageAsync(userId, "❌ Ошибка обработки кнопки", _kb.MainMenu());
+                }
+                catch { }
+            }
+        }
+
+    } // ← ЭТА скобка закрывает класс MesService
+} // ← ЭТА скобка закрывает namespace
+

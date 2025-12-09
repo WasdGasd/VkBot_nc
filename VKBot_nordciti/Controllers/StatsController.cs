@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using VKBot_nordciti.Services;
 using Microsoft.Extensions.Logging;
 
@@ -28,18 +28,28 @@ namespace VKBot_nordciti.Controllers
                 var response = new
                 {
                     success = true,
+                    message = "📊 Статистика из памяти бота",
                     data = new
                     {
-                        general = new
+                        // Прямые поля для админ-панели
+                        totalUsers = stats.TotalUsers,
+                        activeUsers = stats.ActiveUsersToday,
+                        onlineUsers = stats.OnlineUsers,
+                        messagesToday = stats.TotalCommands, // или stats.TotalMessages если есть
+                        totalCommands = stats.TotalCommands,
+
+                        // Дополнительно для деталей
+                        detailed = new
                         {
-                            totalUsers = stats.TotalUsers,
-                            activeUsersToday = stats.ActiveUsersToday,
-                            onlineUsers = stats.OnlineUsers,
                             messagesLastHour = stats.MessagesLastHour,
-                            totalCommands = stats.TotalCommands
+                            uptime = stats.Uptime.ToString(@"dd\.hh\:mm\:ss"),
+                            lastUpdate = stats.LastUpdate.ToString("yyyy-MM-dd HH:mm:ss")
                         },
+
+                        // Команды для графика
                         commands = commands
-                    }
+                    },
+                    source = "BOT_MEMORY"
                 };
 
                 _logger.LogInformation($"Stats API called: {stats.TotalUsers} users");

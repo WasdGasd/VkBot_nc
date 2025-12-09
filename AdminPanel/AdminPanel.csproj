@@ -7,6 +7,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <None Remove="vkbot.db" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- Основные пакеты для работы с БД -->
 		<PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.0" />

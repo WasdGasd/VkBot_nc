@@ -10,12 +10,19 @@ namespace VKBot_nordciti.Controllers
     public class CallbackController : ControllerBase
     {
         private readonly IMessageService _messageService;
+        private readonly IBotStatsService _botStatsService; // ← ДОБАВИЛ
         private readonly IConfiguration _configuration;
         private readonly ILogger<CallbackController> _logger;
 
-        public CallbackController(IMessageService messageService, IConfiguration configuration, ILogger<CallbackController> logger)
+        // Изменил конструктор - добавил IBotStatsService
+        public CallbackController(
+            IMessageService messageService,
+            IBotStatsService botStatsService, // ← ДОБАВИЛ
+            IConfiguration configuration,
+            ILogger<CallbackController> logger)
         {
             _messageService = messageService;
+            _botStatsService = botStatsService; // ← ДОБАВИЛ
             _configuration = configuration;
             _logger = logger;
         }
@@ -54,6 +61,10 @@ namespace VKBot_nordciti.Controllers
                                 var userId = userIdProp.GetInt64();
                                 _logger.LogInformation($"User {userId} allowed messages");
 
+                                // Регистрируем в статистике
+                                _botStatsService.RegisterCommandUsage(userId, "message_allow");
+                                _botStatsService.UpdateUserActivity(userId, isOnline: true);
+
                                 // Вызываем метод для отправки приветственного сообщения
                                 await _messageService.HandleMessageAllowEvent(userId);
                             }
@@ -66,7 +77,23 @@ namespace VKBot_nordciti.Controllers
                         var message = ParseMessage(request);
                         if (message != null)
                         {
+                            // РЕГИСТРАЦИЯ 1
+                            _botStatsService.RegisterCommandUsage(message.FromId, message.Text);
+                            _botStatsService.UpdateUserActivity(message.FromId, isOnline: true);
+
                             await _messageService.ProcessMessageAsync(message);
+                        }
+                        return Ok("ok");
+                    }
+
+                    // ВАЖНО: ДОБАВИЛ обработку нажатий кнопок
+                    if (type == "message_event")
+                    {
+                        _logger.LogInformation("Processing message_event (button click)");
+
+                        if (request.TryGetProperty("object", out var objectElement))
+                        {
+                            await ProcessMessageEvent(objectElement);
                         }
                         return Ok("ok");
                     }
@@ -79,6 +106,77 @@ namespace VKBot_nordciti.Controllers
             {
                 _logger.LogError(ex, "Error processing callback");
                 return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+
+        // НОВЫЙ МЕТОД: Обработка нажатий кнопок
+        private async Task ProcessMessageEvent(JsonElement eventElement)
+        {
+            try
+            {
+                // Получаем данные из event
+                long userId = 0;
+                string eventId = string.Empty;
+                string payload = string.Empty;
+
+                if (eventElement.TryGetProperty("user_id", out var userIdProp))
+                {
+                    userId = userIdProp.GetInt64();
+                }
+
+                if (eventElement.TryGetProperty("event_id", out var eventIdProp))
+                {
+                    eventId = eventIdProp.GetString() ?? "unknown";
+                }
+
+                if (eventElement.TryGetProperty("payload", out var payloadProp))
+                {
+                    payload = payloadProp.ToString();
+                }
+
+                _logger.LogInformation($"Button click - UserId: {userId}, EventId: {eventId}, Payload: {payload}");
+
+                // Регистрируем в статистике как команду
+                string command = ExtractCommandFromPayload(payload, eventId);
+                _botStatsService.RegisterCommandUsage(userId, command);
+                _botStatsService.UpdateUserActivity(userId, isOnline: true);
+
+                // Обрабатываем нажатие кнопки
+                await _messageService.ProcessButtonClickAsync(userId, eventId, payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing message_event");
+            }
+        }
+
+        // Вспомогательный метод для извлечения команды из payload
+        private string ExtractCommandFromPayload(string payload, string fallbackCommand)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(payload) &&
+                    payload.StartsWith("{") && payload.EndsWith("}"))
+                {
+                    var json = JsonDocument.Parse(payload);
+                    if (json.RootElement.TryGetProperty("command", out var commandProp))
+                    {
+                        return commandProp.GetString() ?? fallbackCommand;
+                    }
+                    if (json.RootElement.TryGetProperty("action", out var actionProp))
+                    {
+                        return actionProp.GetString() ?? fallbackCommand;
+                    }
+                    if (json.RootElement.TryGetProperty("type", out var typeProp))
+                    {
+                        return typeProp.GetString() ?? fallbackCommand;
+                    }
+                }
+                return fallbackCommand;
+            }
+            catch
+            {
+                return fallbackCommand;
             }
         }
 

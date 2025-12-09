@@ -120,38 +120,29 @@
 
         // ==================== ЗАГРУЗКА РЕАЛЬНОЙ СТАТИСТИКИ ====================
 
-        async function loadRealStats() {
+                async function loadRealStats() {
             try {
                 console.log('🔄 Загружаем РЕАЛЬНУЮ статистику...');
 
-                // ИСПОЛЬЗУЕМ НАШ РЕАЛЬНЫЙ КОНТРОЛЛЕР
-                const response = await fetch('/api/BotStats/dashboard');
+                const response = await fetch('http://localhost:5101/api/stats/memory');
                 const result = await response.json();
 
-                if (result.success && result.source === 'REAL_DATA_FROM_DATABASE') {
-                    const stats = result.data;
+                if (result.success) {
+                    // Используем новые поля из API
+                    document.getElementById('totalUsers').textContent = result.data.totalUsers || 0;
+                    document.getElementById('activeUsers').textContent = result.data.activeUsers || 0;
+                    document.getElementById('messagesToday').textContent = result.data.messagesToday || 0;
+                    document.getElementById('onlineUsers').textContent = result.data.onlineUsers || 0;
 
-                    // Заполняем РЕАЛЬНЫМИ данными
-                    document.getElementById('totalUsers').textContent = stats.totalUsers || 0;
-                    document.getElementById('activeUsers').textContent = stats.activeUsers || 0;
-                    document.getElementById('messagesToday').textContent = stats.messagesToday || 0;
-                    document.getElementById('onlineUsers').textContent = stats.onlineUsers || 0;
-
-                    // Показываем время обновления
-                    lastUpdateTime = new Date().toLocaleTimeString();
-                    console.log('✅ РЕАЛЬНАЯ статистика загружена:', stats);
-
-                    // Показываем уведомление
-                    showMessage('📊 Загружены РЕАЛЬНЫЕ данные из БД', 'success');
+                    console.log('✅ Статистика загружена:', result.data);
+                    showMessage('📊 Загружена статистика бота', 'success');
                 } else {
                     console.warn('⚠️ Данные не загружены:', result.message);
-                    showError('Не удалось загрузить РЕАЛЬНЫЕ данные');
-                    setZeroStats(); // Показываем нули вместо демо
+                    setZeroStats();
                 }
             } catch (error) {
                 console.error('❌ Ошибка загрузки:', error);
-                showError('Ошибка соединения с сервером');
-                setZeroStats(); // Показываем нули вместо демо
+                setZeroStats();
             }
         }
 
@@ -165,43 +156,30 @@
 
         // ==================== ЗАГРУЗКА РЕАЛЬНОЙ СТАТИСТИКИ КОМАНД ====================
 
-        async function loadRealCommandsStats() {
+               async function loadRealCommandsStats() {
             try {
                 document.getElementById('commandsList').innerHTML =
                     '<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div> Загрузка РЕАЛЬНЫХ данных...</div>';
 
-                // ИСПОЛЬЗУЕМ РЕАЛЬНЫЙ КОНТРОЛЛЕР
-                const response = await fetch('/api/BotStats/commands');
+                const response = await fetch('http://localhost:5101/api/stats/memory');
                 const result = await response.json();
 
                 if (result.success) {
-                    if (result.source === 'REAL_DATA_FROM_COMMANDUSAGE' && Object.keys(result.data).length > 0) {
-                        updateRealCommandsList(result.data, result.totalUsage);
+                    // Берем команды из result.data.commands
+                    const commandsData = result.data.commands || {};
+                    const totalUsage = Object.values(commandsData).reduce((a, b) => a + b, 0);
 
-                        await loadChartLibrary();
-                        createRealCommandsChart(result.data);
+                    updateRealCommandsList(commandsData, totalUsage);
 
-                        showMessage('📋 Загружена РЕАЛЬНАЯ статистика команд', 'success');
-                    } else {
-                        // Нет данных в CommandUsage
-                        document.getElementById('commandsList').innerHTML = `
-                            <div class="alert alert-info">
-                                <i class="bi bi-info-circle"></i>
-                                <strong>Нет данных об использовании команд</strong>
-                                <p class="mb-0 small">Таблица CommandUsage пуста или не содержит данных за сегодня</p>
-                            </div>
-                        `;
+                    await loadChartLibrary();
+                    createRealCommandsChart(commandsData);
 
-                        // Создаем пустой график
-                        await loadChartLibrary();
-                        createEmptyCommandsChart();
-                    }
+                    showMessage('📋 Загружена статистика команд', 'success');
                 } else {
                     throw new Error(result.message || 'Ошибка загрузки');
                 }
-
             } catch (error) {
-                console.error('Ошибка загрузки РЕАЛЬНОЙ статистики команд:', error);
+                console.error('Ошибка загрузки статистики команд:', error);
                 document.getElementById('commandsList').innerHTML = `
                     <div class="alert alert-danger">
                         <i class="bi bi-exclamation-triangle"></i>
@@ -210,7 +188,6 @@
                     </div>
                 `;
 
-                // Создаем пустой график при ошибке
                 await loadChartLibrary();
                 createEmptyCommandsChart();
             }
@@ -361,7 +338,7 @@
         async function loadRealWeeklyActivity() {
             try {
                 // ИСПОЛЬЗУЕМ РЕАЛЬНЫЙ КОНТРОЛЛЕР
-                const response = await fetch('/api/BotStats/weekly-activity');
+                const response = await fetch('http://localhost:5101/api/stats/memory');
                 const result = await response.json();
 
                 if (result.success && result.source === 'REAL_DATA_FROM_MESSAGES') {
@@ -480,29 +457,23 @@
 
         // ==================== ОБНОВЛЕНИЕ ВСЕЙ СТАТИСТИКИ ====================
 
-        async function loadAllRealStats() {
-            console.log('🔄 Начинаем загрузку ВСЕЙ РЕАЛЬНОЙ статистики...');
-
-            // Показываем индикатор загрузки
-            showLoadingIndicator();
+                async function loadAllRealStats() {
+            console.log('🔄 Начинаем загрузку всей статистики...');
 
             try {
-                await Promise.all([
-                    loadRealStats(),
-                    loadRealCommandsStats(),
-                    loadRealWeeklyActivity()
-                ]);
+                // Загружаем только ОСНОВНУЮ статистику и команды
+                await loadRealStats();
+                await loadRealCommandsStats();
+                await loadRealWeeklyActivity();
 
-                console.log('✅ Вся РЕАЛЬНАЯ статистика загружена');
-                hideLoadingIndicator();
+                console.log('✅ Вся статистика загружена');
 
                 // Показываем уведомление об успехе
-                showNotification('✅ Вся статистика успешно загружена!', 'success');
+                showMessage('✅ Вся статистика успешно загружена!', 'success');
 
             } catch (error) {
                 console.error('❌ Ошибка загрузки:', error);
-                hideLoadingIndicator();
-                showNotification('error', 'Ошибка загрузки', 'Часть данных может быть недоступна');
+                showMessage('❌ Ошибка загрузки статистики', 'error');
             }
         }
 
@@ -576,7 +547,7 @@
 
             // Автообновление каждые 60 секунд
             setInterval(() => {
-                loadRealStats();
+                loadAllRealStats();
                 console.log('🔄 РЕАЛЬНАЯ статистика обновлена:', new Date().toLocaleTimeString());
             }, 60000);
         });

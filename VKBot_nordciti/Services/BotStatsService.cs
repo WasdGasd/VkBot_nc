@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 
 namespace VKBot_nordciti.Services
 {
@@ -31,11 +31,18 @@ namespace VKBot_nordciti.Services
             _hourlyMessages.AddOrUpdate(hour, 1, (_, count) => count + 1);
 
             _userStats.AddOrUpdate(userId,
-                new UserStat { UserId = userId, MessagesCount = 1, LastActivity = DateTime.Now },
+                new UserStat
+                {
+                    UserId = userId,
+                    MessagesCount = 1,
+                    LastActivity = DateTime.Now,
+                    IsOnline = true
+                },
                 (_, stat) =>
                 {
                     stat.MessagesCount++;
                     stat.LastActivity = DateTime.Now;
+                    stat.IsOnline = true;
                     return stat;
                 });
         }
@@ -50,7 +57,139 @@ namespace VKBot_nordciti.Services
         public void RegisterCommandUsage(long userId, string command)
         {
             _totalCommands++;
-            _commandStats.AddOrUpdate(command, 1, (_, count) => count + 1);
+
+            string normalizedCommand = command.ToLower().Trim();
+
+            Console.WriteLine($"🔍 Original command: '{command}'");
+            Console.WriteLine($"🔍 Normalized: '{normalizedCommand}'");
+
+            // Проверяем эмодзи которые приходят как ??
+            if (normalizedCommand.Contains("??") || normalizedCommand.Contains("ℹ?"))
+            {
+                // Это эмодзи-кнопки
+                if (normalizedCommand.Contains("?? к информации") || normalizedCommand.Contains("ℹ? к информации"))
+                {
+                    normalizedCommand = "информация";
+                }
+                else if (normalizedCommand.Contains("?? время работы") || normalizedCommand.Contains("🕒"))
+                {
+                    normalizedCommand = "время_работы";
+                }
+                else if (normalizedCommand.Contains("?? главное меню") || normalizedCommand.Contains("?? назад"))
+                {
+                    normalizedCommand = "назад";
+                }
+                else if (normalizedCommand.Contains("?? билеты") || normalizedCommand.Contains("🎫"))
+                {
+                    normalizedCommand = "билеты";
+                }
+                else if (normalizedCommand.Contains("📊") || normalizedCommand.Contains("загруженность"))
+                {
+                    normalizedCommand = "загруженность";
+                }
+                else
+                {
+                    normalizedCommand = "кнопка";
+                }
+            }
+            // Проверяем обычные эмодзи
+            else if (normalizedCommand.Contains("🔙") ||
+                     normalizedCommand.Contains("📅") ||
+                     normalizedCommand.Contains("📊") ||
+                     normalizedCommand.Contains("ℹ️") ||
+                     normalizedCommand.Contains("🎫") ||
+                     normalizedCommand.Contains("🕒") ||
+                     normalizedCommand.Contains("📞") ||
+                     normalizedCommand.Contains("📍") ||
+                     normalizedCommand.Contains("🎯") ||
+                     normalizedCommand.Contains("💳") ||
+                     normalizedCommand.Contains("👤") ||
+                     normalizedCommand.Contains("👶"))
+            {
+                // Убираем эмодзи и оставляем текст
+                normalizedCommand = RemoveEmojis(normalizedCommand).Trim();
+
+                if (string.IsNullOrEmpty(normalizedCommand))
+                {
+                    normalizedCommand = "кнопка";
+                }
+                else
+                {
+                    // УБЕРИ button_ префикс!
+                    normalizedCommand = normalizedCommand.Replace("button_", "");
+                }
+            }
+            // Если это текстовая команда
+            else if (normalizedCommand.StartsWith("/") ||
+                     normalizedCommand.Contains("билет") ||
+                     normalizedCommand.Contains("загруженность") ||
+                     normalizedCommand.Contains("информация") ||
+                     normalizedCommand.Contains("начать") ||
+                     normalizedCommand.Contains("меню") ||
+                     normalizedCommand.Contains("помощь") ||
+                     normalizedCommand.Contains("время") ||
+                     normalizedCommand.Contains("контакт"))
+            {
+                // Оставляем как есть, но красиво форматируем
+                if (normalizedCommand.Contains("время"))
+                {
+                    normalizedCommand = "время_работы";
+                }
+                else if (normalizedCommand.Contains("контакт"))
+                {
+                    normalizedCommand = "контакты";
+                }
+                else if (normalizedCommand.StartsWith("/"))
+                {
+                    // Команды с / оставляем
+                }
+            }
+            else
+            {
+                // Простое сообщение
+                normalizedCommand = "сообщение";
+            }
+
+            Console.WriteLine($"📊 Final command: '{normalizedCommand}'");
+            _commandStats.AddOrUpdate(normalizedCommand, 1, (_, count) => count + 1);
+
+            // Обновляем активность
+            _userStats.AddOrUpdate(userId,
+                new UserStat
+                {
+                    UserId = userId,
+                    LastActivity = DateTime.Now,
+                    IsOnline = true
+                },
+                (_, stat) =>
+                {
+                    stat.LastActivity = DateTime.Now;
+                    stat.IsOnline = true;
+                    return stat;
+                });
+        }
+
+        private string RemoveEmojis(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Убираем эмодзи и их ?? представление
+            string[] emojis = {
+        "🔙", "📅", "📊", "ℹ️", "🎫", "🕒", "📞", "📍", "🎯", "💳", "👤", "👶",
+        "??", "ℹ?", "🕒?", "📊?", "🎫?"  // ?? версии эмодзи
+    };
+
+            foreach (var emoji in emojis)
+            {
+                text = text.Replace(emoji, "");
+            }
+
+            // Убираем "к" или другие короткие слова после эмодзи
+            text = text.Replace(" к информации", " информация");
+            text = text.Replace(" время работы", " время_работы");
+            text = text.Replace(" главное меню", " назад");
+
+            return text.Trim();
         }
 
         public void UpdateUserActivity(long userId, bool isOnline)
@@ -73,8 +212,12 @@ namespace VKBot_nordciti.Services
             var activeToday = _userStats.Values.Count(u => u.LastActivity.Date == today);
             var onlineNow = _userStats.Values.Count(u => u.IsOnline);
 
+            // Подсчет сообщений за последний час
             var lastHour = (now.Hour - 1 + 24) % 24;
             var messagesLastHour = _hourlyMessages.TryGetValue(lastHour, out var count) ? count : 0;
+
+            // Подсчет команд за сегодня
+            var commandsToday = _commandStats.Values.Sum();
 
             return new BotStats
             {
@@ -83,7 +226,7 @@ namespace VKBot_nordciti.Services
                 OnlineUsers = onlineNow,
                 TotalMessages = _totalMessages,
                 MessagesLastHour = messagesLastHour,
-                TotalCommands = _totalCommands,
+                TotalCommands = _totalCommands,  // Это ВСЕ команды (включая кнопки)
                 Uptime = now - _startTime,
                 LastUpdate = now
             };
