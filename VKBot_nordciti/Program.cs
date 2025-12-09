@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using VKBot_nordciti.Data;
 using VKBot_nordciti.Services;
 using VKBot_nordciti.VK;
@@ -7,6 +7,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Добавляем контроллеры
 builder.Services.AddControllers();
+
+builder.Services.AddSingleton<IBotStatsService, BotStatsService>();
 
 // 2. Настройка CORS
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
