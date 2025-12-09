@@ -10,17 +10,704 @@ namespace AdminPanel.Controllers
     public class UsersApiController : ControllerBase
     {
         private readonly UserService _userService;
+        private readonly VkApiService _vkApiService;
         private readonly ILogger<UsersApiController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly bool _enableRealVkIntegration;
 
         public UsersApiController(
             UserService userService,
+            VkApiService vkApiService,
             ILogger<UsersApiController> logger,
             IConfiguration configuration)
         {
             _userService = userService;
+            _vkApiService = vkApiService;
             _logger = logger;
             _configuration = configuration;
+            _enableRealVkIntegration = configuration.GetValue<bool>("AdminSettings:EnableRealVkIntegration", false);
+        }
+
+        // ==================== НОВЫЕ МЕТОДЫ ДЛЯ VK ИНТЕГРАЦИИ ====================
+
+        // POST: api/v1/users/sync-vk
+        [HttpPost("sync-vk")]
+        public async Task<IActionResult> SyncWithVk([FromQuery] bool fullSync = false)
+        {
+            _logger.LogInformation("POST /api/v1/users/sync-vk?fullSync={FullSync}", fullSync);
+
+            try
+            {
+                if (!_vkApiService.IsEnabled)
+                {
+                    return BadRequest(new ApiResponse(false, "VK API отключен. Проверьте настройки."));
+                }
+
+                var syncedCount = await _userService.SyncWithVkAsync(fullSync);
+
+                return Ok(new ApiResponse(true, "Синхронизация завершена", new
+                {
+                    syncedCount,
+                    fullSync,
+                    message = syncedCount > 0
+                        ? $"Синхронизировано {syncedCount} пользователей"
+                        : "Нет новых пользователей для синхронизации",
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка синхронизации с VK");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка синхронизации: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/ban
+        [HttpPost("{id:int}/ban")]
+        public async Task<IActionResult> BanUser(int id, [FromBody] BanUserRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/ban", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Reason))
+                {
+                    return BadRequest(new ApiResponse(false, "Причина бана обязательна"));
+                }
+
+                var success = await _userService.BanUserAsync(user.VkUserId, request.Reason);
+
+                return Ok(new ApiResponse(success, success ? "Пользователь забанен" : "Не удалось забанить пользователя", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    reason = request.Reason,
+                    bannedAt = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка бана пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/unban
+        [HttpPost("{id:int}/unban")]
+        public async Task<IActionResult> UnbanUser(int id)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/unban", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                var success = await _userService.UnbanUserAsync(user.VkUserId);
+
+                return Ok(new ApiResponse(success, success ? "Пользователь разбанен" : "Не удалось разбанить пользователя", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    unbannedAt = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка разбана пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/send-real-message
+        [HttpPost("{id:int}/send-real-message")]
+        public async Task<IActionResult> SendRealMessage(int id, [FromBody] SendMessageRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/send-real-message", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Message))
+                {
+                    return BadRequest(new ApiResponse(false, "Сообщение не может быть пустым"));
+                }
+
+                if (request.Message.Length > 4000)
+                {
+                    return BadRequest(new ApiResponse(false, "Сообщение не должно превышать 4000 символов"));
+                }
+
+                var success = await _userService.SendMessageToVkUserAsync(user.VkUserId, request.Message);
+
+                return Ok(new ApiResponse(success, success ? "Сообщение отправлено" : "Не удалось отправить сообщение", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    messagePreview = request.Message.Length > 100
+                        ? request.Message.Substring(0, 100) + "..."
+                        : request.Message,
+                    sentAt = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка отправки сообщения пользователю ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/refresh-vk
+        [HttpPost("{id:int}/refresh-vk")]
+        public async Task<IActionResult> RefreshFromVk(int id)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/refresh-vk", id);
+
+            try
+            {
+                if (!_vkApiService.IsEnabled)
+                {
+                    return BadRequest(new ApiResponse(false, "VK API отключен"));
+                }
+
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                await _userService.UpdateUserFromVkAsync(user.VkUserId);
+
+                // Получаем обновленные данные
+                var updatedUser = await _userService.GetUserByIdAsync(id);
+
+                return Ok(new ApiResponse(true, "Данные обновлены из VK", updatedUser));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления пользователя из VK ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/vk/status
+        [HttpGet("vk/status")]
+        public IActionResult GetVkApiStatus()
+        {
+            _logger.LogInformation("GET /api/v1/users/vk/status");
+
+            try
+            {
+                var status = new
+                {
+                    isEnabled = _vkApiService.IsEnabled,
+                    isIntegrationEnabled = _enableRealVkIntegration,
+                    hasAccessToken = !string.IsNullOrEmpty(_configuration["VkApi:AccessToken"]),
+                    hasGroupId = !string.IsNullOrEmpty(_configuration["VkApi:GroupId"]),
+                    configuration = new
+                    {
+                        accessTokenLength = _configuration["VkApi:AccessToken"]?.Length ?? 0,
+                        apiVersion = _configuration["VkApi:ApiVersion"],
+                        groupId = _configuration["VkApi:GroupId"],
+                        adminIds = _configuration.GetSection("VkApi:AdminIds").Get<long[]>()?.Length ?? 0
+                    }
+                };
+
+                return Ok(new ApiResponse(true, "Статус VK API", status));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения статуса VK API");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/online
+        [HttpGet("online")]
+        public async Task<IActionResult> GetOnlineUsers()
+        {
+            _logger.LogInformation("GET /api/v1/users/online");
+
+            try
+            {
+                var users = await _userService.GetOnlineUsersAsync();
+
+                return Ok(new ApiResponse(true, "Онлайн пользователи", new
+                {
+                    users,
+                    count = users.Count,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения онлайн пользователей");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/banned
+        [HttpGet("banned")]
+        public async Task<IActionResult> GetBannedUsers()
+        {
+            _logger.LogInformation("GET /api/v1/users/banned");
+
+            try
+            {
+                var users = await _userService.GetBannedUsersAsync();
+
+                return Ok(new ApiResponse(true, "Забаненные пользователи", new
+                {
+                    users,
+                    count = users.Count,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения забаненных пользователей");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/active
+        [HttpGet("active")]
+        public async Task<IActionResult> GetActiveUsers([FromQuery] int days = 7)
+        {
+            _logger.LogInformation("GET /api/v1/users/active?days={Days}", days);
+
+            try
+            {
+                var users = await _userService.GetActiveUsersAsync(days);
+
+                return Ok(new ApiResponse(true, "Активные пользователи", new
+                {
+                    users,
+                    count = users.Count,
+                    days,
+                    period = $"{DateTime.Now.AddDays(-days):yyyy-MM-dd} - {DateTime.Now:yyyy-MM-dd}",
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения активных пользователей");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/advanced-stats
+        [HttpGet("advanced-stats")]
+        public async Task<IActionResult> GetAdvancedStats()
+        {
+            _logger.LogInformation("GET /api/v1/users/advanced-stats");
+
+            try
+            {
+                var stats = await _userService.GetAdvancedStatsAsync();
+
+                return Ok(new ApiResponse(true, "Расширенная статистика", stats));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения расширенной статистики");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/toggle-status
+        [HttpPost("{id:int}/toggle-status")]
+        public async Task<IActionResult> ToggleUserStatus(int id)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/toggle-status", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                user.IsActive = !user.IsActive;
+                var updatedUser = await _userService.AddOrUpdateUserAsync(user);
+
+                return Ok(new ApiResponse(true, "Статус пользователя изменен", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    isActive = user.IsActive,
+                    action = user.IsActive ? "активирован" : "деактивирован",
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка изменения статуса пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/update-status
+        [HttpPost("{id:int}/update-status")]
+        public async Task<IActionResult> UpdateUserStatus(int id, [FromBody] UpdateUserStatusRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/update-status", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                user.Status = request.Status;
+                var updatedUser = await _userService.AddOrUpdateUserAsync(user);
+
+                return Ok(new ApiResponse(true, "Статус пользователя обновлен", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    oldStatus = user.Status,
+                    newStatus = request.Status,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления статуса пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/notes
+        [HttpPost("{id:int}/notes")]
+        public async Task<IActionResult> UpdateUserNotes(int id, [FromBody] UpdateUserNotesRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/notes", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                user.Notes = request.Notes;
+                var updatedUser = await _userService.AddOrUpdateUserAsync(user);
+
+                return Ok(new ApiResponse(true, "Заметки пользователя обновлены", new
+                {
+                    userId = id,
+                    vkUserId = user.VkUserId,
+                    notesLength = request.Notes?.Length ?? 0,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления заметок пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users/{id}/update-info
+        [HttpPost("{id:int}/update-info")]
+        public async Task<IActionResult> UpdateUserInfo(int id, [FromBody] UpdateUserInfoRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users/{Id}/update-info", id);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                // Обновляем только предоставленные поля
+                if (!string.IsNullOrWhiteSpace(request.Email))
+                    user.Email = request.Email;
+
+                if (!string.IsNullOrWhiteSpace(request.Phone))
+                    user.Phone = request.Phone;
+
+                if (!string.IsNullOrWhiteSpace(request.Location))
+                    user.Location = request.Location;
+
+                var updatedUser = await _userService.AddOrUpdateUserAsync(user);
+
+                return Ok(new ApiResponse(true, "Информация о пользователе обновлена", updatedUser));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления информации о пользователе ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // ==================== ОБНОВЛЕННЫЕ СУЩЕСТВУЮЩИЕ МЕТОДЫ ====================
+
+        // GET: api/v1/users
+        [HttpGet]
+        public async Task<IActionResult> GetUsers(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string search = "",
+            [FromQuery] string status = "all",
+            [FromQuery] string sort = "newest",
+            [FromQuery] bool includeVkInfo = false)
+        {
+            _logger.LogInformation("GET /api/v1/users?page={Page}&pageSize={PageSize}&search={Search}&status={Status}&sort={Sort}&includeVkInfo={IncludeVkInfo}",
+                page, pageSize, search ?? "", status, sort, includeVkInfo);
+
+            try
+            {
+                var result = await _userService.GetUsersAsync(page, pageSize, search, status, sort, includeVkInfo);
+
+                // Добавляем информацию о VK интеграции
+                var responseData = new
+                {
+                    users = result.Users,
+                    pagination = new
+                    {
+                        page = result.Page,
+                        pageSize = result.PageSize,
+                        totalCount = result.TotalCount,
+                        totalPages = result.TotalPages
+                    },
+                    stats = new
+                    {
+                        totalUsers = result.TotalCount,
+                        activeUsers = result.ActiveCount,
+                        onlineUsers = result.OnlineCount,
+                        newToday = result.NewTodayCount
+                    },
+                    vkIntegration = new
+                    {
+                        enabled = _vkApiService.IsEnabled && _enableRealVkIntegration,
+                        includeVkInfo,
+                        lastSync = DateTime.UtcNow
+                    },
+                    timestamp = DateTime.UtcNow
+                };
+
+                return Ok(new ApiResponse(true, "Пользователи получены", responseData));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении пользователей");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // GET: api/v1/users/{id}
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetUser(
+            int id,
+            [FromQuery] bool includeMessages = true,
+            [FromQuery] bool includeVkInfo = true)
+        {
+            _logger.LogInformation("GET /api/v1/users/{Id}?includeMessages={IncludeMessages}&includeVkInfo={IncludeVkInfo}",
+                id, includeMessages, includeVkInfo);
+
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                // Обновляем информацию из VK если нужно
+                if (includeVkInfo && _vkApiService.IsEnabled && _enableRealVkIntegration)
+                {
+                    await _userService.UpdateUserFromVkAsync(user.VkUserId);
+                    user = await _userService.GetUserByIdAsync(id); // Получаем обновленные данные
+                }
+
+                var responseData = new
+                {
+                    user,
+                    recentMessages = includeMessages
+                        ? await _userService.GetUserMessagesAsync(user.VkUserId, 20)
+                        : null,
+                    vkInfo = includeVkInfo && _vkApiService.IsEnabled
+                        ? await _vkApiService.GetUserInfoAsync(user.VkUserId)
+                        : null,
+                    statistics = new
+                    {
+                        totalMessages = user.MessageCount,
+                        isOnline = user.IsOnline,
+                        lastActivity = user.LastActivity,
+                        daysSinceRegistration = (DateTime.Now - user.RegistrationDate).Days
+                    },
+                    vkIntegration = new
+                    {
+                        enabled = _vkApiService.IsEnabled && _enableRealVkIntegration,
+                        canSendMessage = _vkApiService.IsEnabled && user.IsActive && !user.IsBanned,
+                        canBan = _vkApiService.IsEnabled,
+                        lastUpdated = DateTime.UtcNow
+                    }
+                };
+
+                return Ok(new ApiResponse(true, "Пользователь найден", responseData));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users
+        [HttpPost]
+        public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
+        {
+            _logger.LogInformation("POST /api/v1/users - создание пользователя VK ID: {VkUserId}", request.VkUserId);
+
+            try
+            {
+                // Валидация
+                if (request.VkUserId <= 0)
+                {
+                    return BadRequest(new ApiResponse(false, "VK ID обязателен и должен быть больше 0"));
+                }
+
+                if (string.IsNullOrWhiteSpace(request.FirstName))
+                {
+                    return BadRequest(new ApiResponse(false, "Имя пользователя обязательно"));
+                }
+
+                // Проверяем, существует ли пользователь в VK
+                if (_vkApiService.IsEnabled)
+                {
+                    var vkUser = await _vkApiService.GetUserInfoAsync(request.VkUserId);
+                    if (vkUser == null)
+                    {
+                        return BadRequest(new ApiResponse(false, "Пользователь не найден в VK"));
+                    }
+
+                    // Используем данные из VK если они не указаны
+                    request.FirstName = vkUser.FirstName;
+                    request.LastName = vkUser.LastName;
+                    request.Username = vkUser.Domain ?? request.Username;
+                }
+
+                var user = new User
+                {
+                    VkUserId = request.VkUserId,
+                    FirstName = request.FirstName,
+                    LastName = request.LastName,
+                    Username = request.Username ?? string.Empty,
+                    IsActive = request.IsActive ?? true,
+                    IsOnline = false,
+                    LastActivity = DateTime.Now,
+                    MessageCount = 0,
+                    RegistrationDate = DateTime.Now,
+                    IsBanned = false,
+                    Status = request.Status ?? "user",
+                    Email = request.Email ?? string.Empty,
+                    Phone = request.Phone ?? string.Empty,
+                    Location = request.Location ?? string.Empty
+                };
+
+                var createdUser = await _userService.AddOrUpdateUserAsync(user);
+
+                return Ok(new ApiResponse(true, "Пользователь создан/обновлен", new
+                {
+                    user = createdUser,
+                    vkIntegration = new
+                    {
+                        enabled = _vkApiService.IsEnabled,
+                        verified = _vkApiService.IsEnabled,
+                        timestamp = DateTime.UtcNow
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при создании пользователя");
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // PUT: api/v1/users/{id}
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserRequest request)
+        {
+            _logger.LogInformation("PUT /api/v1/users/{Id} - обновление пользователя", id);
+
+            try
+            {
+                var existingUser = await _userService.GetUserByIdAsync(id);
+                if (existingUser == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
+                }
+
+                // Обновляем только разрешенные поля
+                if (!string.IsNullOrWhiteSpace(request.FirstName))
+                    existingUser.FirstName = request.FirstName;
+
+                if (!string.IsNullOrWhiteSpace(request.LastName))
+                    existingUser.LastName = request.LastName;
+
+                if (!string.IsNullOrWhiteSpace(request.Username))
+                    existingUser.Username = request.Username;
+
+                if (!string.IsNullOrWhiteSpace(request.Email))
+                    existingUser.Email = request.Email;
+
+                if (!string.IsNullOrWhiteSpace(request.Phone))
+                    existingUser.Phone = request.Phone;
+
+                if (!string.IsNullOrWhiteSpace(request.Location))
+                    existingUser.Location = request.Location;
+
+                if (!string.IsNullOrWhiteSpace(request.Status))
+                    existingUser.Status = request.Status;
+
+                if (request.IsActive.HasValue)
+                    existingUser.IsActive = request.IsActive.Value;
+
+                if (request.IsBanned.HasValue)
+                    existingUser.IsBanned = request.IsBanned.Value;
+
+                if (request.IsOnline.HasValue)
+                    existingUser.IsOnline = request.IsOnline.Value;
+
+                var updatedUser = await _userService.AddOrUpdateUserAsync(existingUser);
+
+                return Ok(new ApiResponse(true, "Пользователь обновлен", new
+                {
+                    user = updatedUser,
+                    changes = request,
+                    timestamp = DateTime.UtcNow
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при обновлении пользователя ID {Id}", id);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
         }
 
         // ==================== ДИАГНОСТИКА ====================
@@ -140,69 +827,7 @@ namespace AdminPanel.Controllers
             }
         }
 
-        // ==================== ОСНОВНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ====================
-
-        // GET: api/v1/users
-        [HttpGet]
-        public async Task<IActionResult> GetUsers(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 20,
-            [FromQuery] string search = "",
-            [FromQuery] string status = "all",
-            [FromQuery] string sort = "newest")
-        {
-            _logger.LogInformation("GET /api/v1/users?page={Page}&pageSize={PageSize}&search={Search}&status={Status}&sort={Sort}",
-                page, pageSize, search ?? "", status, sort);
-
-            try
-            {
-                var result = await _userService.GetUsersAsync(page, pageSize, search, status, sort);
-
-                return Ok(new ApiResponse(true, "Пользователи получены", result));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователей");
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
-
-        // GET: api/v1/users/{id}
-        [HttpGet("{id:int}")]
-        public async Task<IActionResult> GetUser(int id)
-        {
-            _logger.LogInformation("GET /api/v1/users/{Id}", id);
-
-            try
-            {
-                var user = await _userService.GetUserByIdAsync(id);
-
-                if (user == null)
-                {
-                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
-                }
-
-                // Получаем сообщения пользователя
-                var messages = await _userService.GetUserMessagesAsync(user.VkUserId, 10);
-
-                return Ok(new ApiResponse(true, "Пользователь найден", new
-                {
-                    user,
-                    recentMessages = messages,
-                    statistics = new
-                    {
-                        totalMessages = user.MessageCount,
-                        isOnline = user.IsOnline,
-                        lastActivity = user.LastActivity
-                    }
-                }));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователя ID {Id}", id);
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
+        // ==================== ОСНОВНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (остальные без изменений) ====================
 
         // GET: api/v1/users/vk/{vkUserId}
         [HttpGet("vk/{vkUserId:long}")]
@@ -228,92 +853,11 @@ namespace AdminPanel.Controllers
             }
         }
 
-        // POST: api/v1/users
-        [HttpPost]
-        public async Task<IActionResult> CreateUser([FromBody] User user)
-        {
-            _logger.LogInformation("POST /api/v1/users - создание пользователя VK ID: {VkUserId}", user.VkUserId);
-
-            try
-            {
-                // Валидация
-                if (user.VkUserId <= 0)
-                {
-                    return BadRequest(new ApiResponse(false, "VK ID обязателен и должен быть больше 0"));
-                }
-
-                if (string.IsNullOrWhiteSpace(user.FirstName))
-                {
-                    return BadRequest(new ApiResponse(false, "Имя пользователя обязательно"));
-                }
-
-                var createdUser = await _userService.AddOrUpdateUserAsync(user);
-
-                return Ok(new ApiResponse(true, "Пользователь создан/обновлен", createdUser));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при создании пользователя");
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
-
-        // PUT: api/v1/users/{id}
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> UpdateUser(int id, [FromBody] User user)
-        {
-            _logger.LogInformation("PUT /api/v1/users/{Id} - обновление пользователя", id);
-
-            try
-            {
-                var existingUser = await _userService.GetUserByIdAsync(id);
-                if (existingUser == null)
-                {
-                    return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
-                }
-
-                // Обновляем только разрешенные поля
-                if (!string.IsNullOrWhiteSpace(user.FirstName))
-                    existingUser.FirstName = user.FirstName;
-
-                if (!string.IsNullOrWhiteSpace(user.LastName))
-                    existingUser.LastName = user.LastName;
-
-                if (!string.IsNullOrWhiteSpace(user.Username))
-                    existingUser.Username = user.Username;
-
-                if (!string.IsNullOrWhiteSpace(user.Email))
-                    existingUser.Email = user.Email;
-
-                if (!string.IsNullOrWhiteSpace(user.Phone))
-                    existingUser.Phone = user.Phone;
-
-                if (!string.IsNullOrWhiteSpace(user.Location))
-                    existingUser.Location = user.Location;
-
-                if (!string.IsNullOrWhiteSpace(user.Status))
-                    existingUser.Status = user.Status;
-
-                existingUser.IsActive = user.IsActive;
-                existingUser.IsBanned = user.IsBanned;
-                existingUser.IsOnline = user.IsOnline;
-
-                var updatedUser = await _userService.AddOrUpdateUserAsync(existingUser);
-
-                return Ok(new ApiResponse(true, "Пользователь обновлен", updatedUser));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при обновлении пользователя ID {Id}", id);
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
-
         // ==================== МЕТОДЫ ДЛЯ СТАТУСА И АКТИВНОСТИ ====================
 
         // PATCH: api/v1/users/{id}/status
         [HttpPatch("{id:int}/status")]
-        public async Task<IActionResult> UpdateUserStatus(int id, [FromBody] UpdateUserStatusRequest request)
+        public async Task<IActionResult> UpdateUserStatusOld(int id, [FromBody] UpdateUserStatusRequestOld request)
         {
             _logger.LogInformation("PATCH /api/v1/users/{Id}/status - обновление статуса", id);
 
@@ -1182,7 +1726,59 @@ namespace AdminPanel.Controllers
 
     // ==================== МОДЕЛИ ЗАПРОСОВ ====================
 
+    public class CreateUserRequest
+    {
+        public long VkUserId { get; set; }
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string? Username { get; set; }
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Location { get; set; }
+        public string? Status { get; set; }
+        public bool? IsActive { get; set; }
+    }
+
+    public class UpdateUserRequest
+    {
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? Username { get; set; }
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Location { get; set; }
+        public string? Status { get; set; }
+        public bool? IsActive { get; set; }
+        public bool? IsBanned { get; set; }
+        public bool? IsOnline { get; set; }
+    }
+
+    public class BanUserRequest
+    {
+        public string Reason { get; set; } = string.Empty;
+        public int? DurationHours { get; set; }
+        public string? Comment { get; set; }
+    }
+
     public class UpdateUserStatusRequest
+    {
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public class UpdateUserNotesRequest
+    {
+        public string? Notes { get; set; }
+    }
+
+    public class UpdateUserInfoRequest
+    {
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Location { get; set; }
+    }
+
+    // Существующие модели остаются...
+    public class UpdateUserStatusRequestOld
     {
         public bool IsActive { get; set; } = true;
         public bool IsBanned { get; set; } = false;

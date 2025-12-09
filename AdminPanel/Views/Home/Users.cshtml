@@ -1,8 +1,29 @@
-﻿
+﻿@{
+    Layout = "_Layout";
+    ViewData["Title"] = "Пользователи";
+}
+
 <div class="container-fluid">
     <div class="row">
         <div class="col-12">
-            <h1 class="h3 mb-4">Пользователи</h1>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">Пользователи</h1>
+                <div class="btn-group" role="group">
+                    <button class="btn btn-outline-primary btn-sm" onclick="checkVkStatus()" title="Проверить статус VK API">
+                        <i class="fas fa-satellite-dish"></i> VK Status
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="syncWithVk(false)" title="Синхронизировать с VK">
+                        <i class="fas fa-sync"></i> Sync VK
+                    </button>
+                </div>
+            </div>
+
+            <!-- Статус VK интеграции -->
+            <div class="alert alert-info d-flex align-items-center mb-4" id="vkStatusAlert" style="display: none;">
+                <i class="fas fa-info-circle me-2"></i>
+                <div class="flex-grow-1" id="vkStatusText"></div>
+                <button class="btn btn-sm btn-outline-info" onclick="checkVkStatus()">Обновить</button>
+            </div>
 
             <!-- Кнопки управления -->
             <div class="row mb-4">
@@ -11,19 +32,36 @@
                         <button class="btn btn-primary" onclick="loadUsers()">
                             <i class="fas fa-sync-alt"></i> Обновить
                         </button>
-                        <button class="btn btn-success" onclick="createTestUser()">
-                            <i class="fas fa-plus"></i> Добавить тестового
+                        <button class="btn btn-success" onclick="syncWithVk(false)">
+                            <i class="fas fa-sync"></i> Синхр. VK
                         </button>
-                        <button class="btn btn-warning" onclick="createBulkUsers(10)">
-                            <i class="fas fa-users"></i> +10 пользователей
+                        <button class="btn btn-info" onclick="createTestUser()">
+                            <i class="fas fa-plus"></i> Тестовый
                         </button>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-warning dropdown-toggle" data-bs-toggle="dropdown">
+                                <i class="fas fa-cogs"></i> Действия
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="syncWithVk(true)"><i class="fas fa-database"></i> Полная синхр.</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="getOnlineUsers()"><i class="fas fa-wifi"></i> Онлайн</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="getBannedUsers()"><i class="fas fa-ban"></i> Забаненные</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="getActiveUsers()"><i class="fas fa-users"></i> Активные</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="#" onclick="createBulkUsers(5)"><i class="fas fa-user-plus"></i> +5 тестовых</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="createBulkUsers(10)"><i class="fas fa-users"></i> +10 тестовых</a></li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="input-group">
-                        <input type="text" id="searchInput" class="form-control" placeholder="Поиск по имени, фамилии, username...">
+                        <input type="text" id="searchInput" class="form-control" placeholder="Поиск по имени, фамилии, username, email, телефону...">
                         <button class="btn btn-outline-primary" onclick="searchUsers()">
                             <i class="fas fa-search"></i> Поиск
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="clearSearch()">
+                            <i class="fas fa-times"></i>
                         </button>
                     </div>
                 </div>
@@ -31,35 +69,132 @@
 
             <!-- Статистика в реальном времени -->
             <div class="row mb-4" id="statsContainer">
-                <div class="col-md-3 mb-3">
-                    <div class="card bg-primary text-white">
-                        <div class="card-body text-center">
-                            <h5 class="card-title">Всего пользователей</h5>
-                            <h2 id="totalUsers" class="mb-0">0</h2>
+                <div class="col-xl-3 col-md-6 mb-3">
+                    <div class="card bg-primary text-white h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-uppercase">Всего пользователей</h6>
+                                    <h2 id="totalUsers" class="mb-0">0</h2>
+                                </div>
+                                <div class="avatar avatar-lg bg-white text-primary rounded-circle">
+                                    <i class="fas fa-users fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <small><i class="fas fa-history me-1"></i> Обновлено: <span id="statsTime">-</span></small>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card bg-success text-white">
-                        <div class="card-body text-center">
-                            <h5 class="card-title">Активных</h5>
-                            <h2 id="activeUsers" class="mb-0">0</h2>
+                <div class="col-xl-3 col-md-6 mb-3">
+                    <div class="card bg-success text-white h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-uppercase">Активных</h6>
+                                    <h2 id="activeUsers" class="mb-0">0</h2>
+                                </div>
+                                <div class="avatar avatar-lg bg-white text-success rounded-circle">
+                                    <i class="fas fa-user-check fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <span class="badge bg-white text-success" id="activePercent">0%</span> от общего числа
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card bg-info text-white">
-                        <div class="card-body text-center">
-                            <h5 class="card-title">Онлайн</h5>
-                            <h2 id="onlineUsers" class="mb-0">0</h2>
+                <div class="col-xl-3 col-md-6 mb-3">
+                    <div class="card bg-info text-white h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-uppercase">Онлайн</h6>
+                                    <h2 id="onlineUsers" class="mb-0">0</h2>
+                                </div>
+                                <div class="avatar avatar-lg bg-white text-info rounded-circle">
+                                    <i class="fas fa-wifi fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <span class="badge bg-white text-info" id="onlinePercent">0%</span> от активных
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card bg-warning text-white">
-                        <div class="card-body text-center">
-                            <h5 class="card-title">Новых сегодня</h5>
-                            <h2 id="newToday" class="mb-0">0</h2>
+                <div class="col-xl-3 col-md-6 mb-3">
+                    <div class="card bg-warning text-white h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-uppercase">Новых сегодня</h6>
+                                    <h2 id="newToday" class="mb-0">0</h2>
+                                </div>
+                                <div class="avatar avatar-lg bg-white text-warning rounded-circle">
+                                    <i class="fas fa-user-plus fs-4"></i>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <small>@DateTime.Today.ToString("dd.MM.yyyy")</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Фильтры и сортировка -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Фильтр по статусу:</label>
+                            <select class="form-select" id="statusFilter" onchange="setFilter(this.value)">
+                                <option value="all">Все пользователи</option>
+                                <option value="active">Активные</option>
+                                <option value="inactive">Неактивные</option>
+                                <option value="online">Онлайн</option>
+                                <option value="banned">Забаненные</option>
+                                <option value="vip">VIP/Админы</option>
+                                <option value="with_messages">С сообщениями</option>
+                                <option value="new_today">Новые сегодня</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Сортировка:</label>
+                            <select class="form-select" id="sortBy" onchange="changeSort(this.value)">
+                                <option value="newest">Сначала новые</option>
+                                <option value="oldest">Сначала старые</option>
+                                <option value="name">По имени (А-Я)</option>
+                                <option value="name_desc">По имени (Я-А)</option>
+                                <option value="activity">По активности</option>
+                                <option value="messages">По сообщениям</option>
+                                <option value="online">Онлайн сначала</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">На странице:</label>
+                            <select class="form-select" id="pageSize" onchange="changePageSize(this.value)">
+                                <option value="10">10</option>
+                                <option value="20" selected>20</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="includeVkInfo" onchange="toggleVkInfo()">
+                                <label class="form-check-label" for="includeVkInfo">
+                                    Обновлять данные из VK
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="refreshAllFromVk()">
+                                <i class="fas fa-redo"></i> Обновить все из VK
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -69,26 +204,18 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">Список пользователей</h5>
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="filterDropdown" data-bs-toggle="dropdown">
-                            <i class="fas fa-filter"></i> Фильтр
-                        </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#" onclick="setFilter('all')">Все пользователи</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="setFilter('active')">Только активные</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="setFilter('online')">Только онлайн</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="setFilter('banned')">Забаненные</a></li>
-                        </ul>
+                    <div class="text-muted">
+                        <span id="selectedCount">0</span> выбрано
                     </div>
                 </div>
-                
+
                 <div class="card-body">
                     <!-- Индикатор загрузки -->
                     <div id="loadingIndicator" class="text-center py-5" style="display: none;">
-                        <div class="spinner-border text-primary" role="status">
+                        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
                             <span class="visually-hidden">Загрузка...</span>
                         </div>
-                        <p class="mt-2 text-muted">Загрузка пользователей...</p>
+                        <p class="mt-3 text-muted">Загрузка пользователей...</p>
                     </div>
 
                     <!-- Таблица -->
@@ -96,14 +223,17 @@
                         <table class="table table-hover table-striped" id="usersTable" style="display: none;">
                             <thead class="table-light">
                                 <tr>
+                                    <th width="30">
+                                        <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll()">
+                                    </th>
                                     <th width="50">ID</th>
-                                    <th>Имя пользователя</th>
-                                    <th>VK ID</th>
-                                    <th>Статус</th>
-                                    <th>Сообщения</th>
-                                    <th>Дата регистрации</th>
-                                    <th>Последняя активность</th>
-                                    <th width="150">Действия</th>
+                                    <th>Пользователь</th>
+                                    <th>VK ID / Контакты</th>
+                                    <th width="120">Статус</th>
+                                    <th width="100">Сообщения</th>
+                                    <th width="150">Дата регистрации</th>
+                                    <th width="150">Последняя активность</th>
+                                    <th width="200">Действия</th>
                                 </tr>
                             </thead>
                             <tbody id="usersTableBody">
@@ -116,11 +246,19 @@
                     <div id="noDataMessage" class="text-center py-5" style="display: none;">
                         <i class="fas fa-users fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted">Пользователи не найдены</h5>
-                        <p class="text-muted">Нажмите "Добавить тестового" чтобы создать пользователей</p>
+                        <p class="text-muted">Попробуйте изменить фильтры или синхронизировать с VK</p>
+                        <div class="mt-3">
+                            <button class="btn btn-primary me-2" onclick="syncWithVk(false)">
+                                <i class="fas fa-sync"></i> Синхронизировать с VK
+                            </button>
+                            <button class="btn btn-success" onclick="createTestUser()">
+                                <i class="fas fa-plus"></i> Добавить тестового
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Пагинация -->
-                    <div id="paginationContainer" class="d-flex justify-content-between align-items-center mt-3" style="display: none;">
+                    <div id="paginationContainer" class="d-flex justify-content-between align-items-center mt-4" style="display: none;">
                         <div class="text-muted">
                             Показано <span id="currentCount">0</span> из <span id="totalCount">0</span> пользователей
                         </div>
@@ -132,13 +270,40 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Групповые действия -->
+            <div class="card mt-3" id="groupActionsCard" style="display: none;">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">Групповые действия</h6>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-outline-primary btn-sm" onclick="sendMessageToSelected()">
+                            <i class="fas fa-paper-plane"></i> Отправить сообщение
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="activateSelected()">
+                            <i class="fas fa-user-check"></i> Активировать
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="deactivateSelected()">
+                            <i class="fas fa-user-slash"></i> Деактивировать
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="banSelected()">
+                            <i class="fas fa-ban"></i> Забанить
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="unbanSelected()">
+                            <i class="fas fa-check"></i> Разбанить
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="refreshSelectedFromVk()">
+                            <i class="fas fa-redo"></i> Обновить из VK
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <!-- Модальное окно для просмотра пользователя -->
 <div class="modal fade" id="userDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Детали пользователя</h5>
@@ -147,18 +312,101 @@
             <div class="modal-body" id="userDetailsContent">
                 <!-- Контент будет загружен динамически -->
             </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                <button type="button" class="btn btn-primary" onclick="refreshUserFromVk()" id="refreshVkBtn">
+                    <i class="fas fa-redo"></i> Обновить из VK
+                </button>
+            </div>
         </div>
     </div>
+</div>
+
+<!-- Модальное окно для отправки сообщения -->
+<div class="modal fade" id="sendMessageModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Отправить сообщение</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Получатель:</label>
+                    <div id="messageRecipient" class="form-control-plaintext"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Сообщение:</label>
+                    <textarea class="form-control" id="messageText" rows="5" placeholder="Введите текст сообщения..."></textarea>
+                    <div class="form-text">Максимум 4000 символов. <span id="charCount">0</span>/4000</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="saveToHistory" checked>
+                    <label class="form-check-label" for="saveToHistory">Сохранить в историю переписки</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="sendMessageConfirmed()">Отправить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для бана -->
+<div class="modal fade" id="banUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Забанить пользователя</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Пользователь:</label>
+                    <div id="banRecipient" class="form-control-plaintext"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Причина:</label>
+                    <input type="text" class="form-control" id="banReason" placeholder="Укажите причину бана" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Длительность (часов):</label>
+                    <input type="number" class="form-control" id="banDuration" min="0" value="0">
+                    <div class="form-text">0 = навсегда</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="banComment" checked>
+                    <label class="form-check-label" for="banComment">Оставить комментарий в VK</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" onclick="banConfirmed()">Забанить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Уведомления -->
+<div id="notificationContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 1055;">
+    <!-- Уведомления будут добавляться сюда -->
 </div>
 
 @section Scripts {
     <script>
         // Конфигурация
         let currentPage = 1;
-        const pageSize = 20;
+        let currentPageSize = 20;
         let currentSearch = '';
         let currentFilter = 'all';
+        let currentSort = 'newest';
         let totalPages = 1;
+        let totalUsers = 0;
+        let includeVkInfo = false;
+        let selectedUsers = new Set();
+        let currentUserId = null;
+        let currentUserName = '';
 
         // Утилиты для работы с DOM
         function showElement(id) {
@@ -170,31 +418,178 @@
         }
 
         function setElementText(id, text) {
-            document.getElementById(id).textContent = text;
+            const element = document.getElementById(id);
+            if (element) element.textContent = text;
+        }
+
+        function setElementHTML(id, html) {
+            const element = document.getElementById(id);
+            if (element) element.innerHTML = html;
+        }
+
+        // Показать уведомление
+        function showNotification(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('notificationContainer');
+            const id = 'notif-' + Date.now();
+
+            const alertClass = {
+                'success': 'alert-success',
+                'error': 'alert-danger',
+                'warning': 'alert-warning',
+                'info': 'alert-info'
+            }[type] || 'alert-info';
+
+            const icon = {
+                'success': 'fa-check-circle',
+                'error': 'fa-exclamation-circle',
+                'warning': 'fa-exclamation-triangle',
+                'info': 'fa-info-circle'
+            }[type] || 'fa-info-circle';
+
+            const alert = document.createElement('div');
+            alert.className = `alert ${alertClass} alert-dismissible fade show`;
+            alert.role = 'alert';
+            alert.innerHTML = `
+                <i class="fas ${icon} me-2"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            alert.id = id;
+            container.appendChild(alert);
+
+            setTimeout(() => {
+                const elem = document.getElementById(id);
+                if (elem) {
+                    elem.classList.remove('show');
+                    setTimeout(() => elem.remove(), 300);
+                }
+            }, duration);
+        }
+
+        // Показать ошибку
+        function showError(message) {
+            hideElement('usersTable');
+            hideElement('paginationContainer');
+            hideElement('noDataMessage');
+
+            const container = document.getElementById('usersTableBody').parentElement;
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Ошибка:</strong> ${message}
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-outline-danger" onclick="loadUsers()">
+                            <i class="fas fa-redo"></i> Попробовать снова
+                        </button>
+                    </div>
+                </div>
+            `;
         }
 
         // Форматирование даты
         function formatDate(dateString) {
             if (!dateString) return '-';
             const date = new Date(dateString);
-            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { 
-                hour: '2-digit', 
-                minute: '2-digit' 
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffMins < 1) return 'только что';
+            if (diffMins < 60) return `${diffMins} мин назад`;
+            if (diffHours < 24) return `${diffHours} ч назад`;
+            if (diffDays === 1) return 'вчера';
+            if (diffDays < 7) return `${diffDays} дн назад`;
+
+            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit'
             });
         }
 
         // Форматирование статуса
         function getStatusBadge(user) {
+            let badges = [];
+
             if (user.isBanned) {
-                return '<span class="badge bg-danger">Забанен</span>';
+                badges.push('<span class="badge bg-danger">Забанен</span>');
             }
             if (!user.isActive) {
-                return '<span class="badge bg-secondary">Неактивен</span>';
+                badges.push('<span class="badge bg-secondary">Неактивен</span>');
             }
             if (user.isOnline) {
-                return '<span class="badge bg-success">Онлайн</span>';
+                badges.push('<span class="badge bg-success">Онлайн</span>');
+            } else {
+                badges.push('<span class="badge bg-light text-dark">Офлайн</span>');
             }
-            return '<span class="badge bg-primary">Активен</span>';
+
+            // Статус пользователя
+            const statusMap = {
+                'admin': 'danger',
+                'moderator': 'warning',
+                'vip': 'info',
+                'user': 'primary',
+                'tester': 'secondary'
+            };
+
+            const statusClass = statusMap[user.status] || 'primary';
+            badges.push(`<span class="badge bg-${statusClass}">${user.status}</span>`);
+
+            return badges.join(' ');
+        }
+
+        // Получить аватар пользователя
+        function getUserAvatar(user) {
+            if (user.photoUrl) {
+                return `<img src="${user.photoUrl}" class="rounded-circle me-2" style="width: 40px; height: 40px;" alt="${user.firstName}">`;
+            }
+
+            const initials = (user.firstName.charAt(0) + user.lastName.charAt(0)).toUpperCase();
+            const colors = ['primary', 'success', 'info', 'warning', 'danger'];
+            const colorIndex = (user.id % colors.length);
+            const color = colors[colorIndex];
+
+            return `
+                <div class="avatar me-2 bg-${color} bg-opacity-10 text-${color} rounded-circle d-flex align-items-center justify-content-center"
+                     style="width: 40px; height: 40px;">
+                    <span class="fw-bold">${initials}</span>
+                </div>
+            `;
+        }
+
+        // Проверить статус VK API
+        async function checkVkStatus() {
+            try {
+                const response = await fetch('/api/v1/users/vk/status');
+                const result = await response.json();
+
+                const statusAlert = document.getElementById('vkStatusAlert');
+                const statusText = document.getElementById('vkStatusText');
+
+                if (result.success && result.data.isEnabled) {
+                    statusText.innerHTML = `
+                        <strong>VK API подключен</strong><br>
+                        <small class="text-muted">Токен: ${result.data.configuration.accessTokenLength > 10 ? '✓' : '✗'},
+                        Группа: ${result.data.configuration.groupId || '✗'},
+                        Админы: ${result.data.configuration.adminIds}</small>
+                    `;
+                    statusAlert.className = 'alert alert-success d-flex align-items-center';
+                    statusAlert.querySelector('i').className = 'fas fa-check-circle me-2';
+                } else {
+                    statusText.innerHTML = `
+                        <strong>VK API отключен</strong><br>
+                        <small class="text-muted">Для реального взаимодействия с пользователями настройте VK API в appsettings.json</small>
+                    `;
+                    statusAlert.className = 'alert alert-warning d-flex align-items-center';
+                    statusAlert.querySelector('i').className = 'fas fa-exclamation-triangle me-2';
+                }
+
+                showElement('vkStatusAlert');
+            } catch (error) {
+                console.error('Ошибка проверки статуса VK:', error);
+            }
         }
 
         // Основная функция загрузки пользователей
@@ -204,15 +599,21 @@
                 hideElement('usersTable');
                 hideElement('noDataMessage');
                 hideElement('paginationContainer');
+                hideElement('groupActionsCard');
                 showElement('loadingIndicator');
+
+                // Сбрасываем выбранные пользователи
+                selectedUsers.clear();
+                updateSelectedCount();
 
                 // Формируем URL
                 const params = new URLSearchParams({
                     page: page,
-                    pageSize: pageSize,
+                    pageSize: currentPageSize,
                     search: currentSearch,
                     status: currentFilter,
-                    sort: 'newest'
+                    sort: currentSort,
+                    includeVkInfo: includeVkInfo
                 });
 
                 // Делаем запрос
@@ -222,12 +623,12 @@
                 }
 
                 const result = await response.json();
-                
+
                 if (result.success) {
                     displayUsers(result.data);
                     updateStats(result.data);
                 } else {
-                    showError('Ошибка загрузки данных');
+                    showError('Ошибка загрузки данных: ' + result.message);
                 }
             } catch (error) {
                 console.error('Ошибка загрузки пользователей:', error);
@@ -239,9 +640,9 @@
 
         // Отображение пользователей в таблице
         function displayUsers(data) {
-            const users = data.users;
+            const users = data.users || [];
             const tbody = document.getElementById('usersTableBody');
-            
+
             // Очищаем таблицу
             tbody.innerHTML = '';
 
@@ -249,6 +650,7 @@
                 // Показываем сообщение об отсутствии данных
                 hideElement('usersTable');
                 hideElement('paginationContainer');
+                hideElement('groupActionsCard');
                 showElement('noDataMessage');
                 return;
             }
@@ -256,78 +658,119 @@
             // Заполняем таблицу
             users.forEach(user => {
                 const row = document.createElement('tr');
-                
+                const isSelected = selectedUsers.has(user.id);
+
                 row.innerHTML = `
+                    <td>
+                        <input type="checkbox" class="form-check-input user-checkbox"
+                               data-user-id="${user.id}"
+                               onchange="toggleUserSelection(${user.id}, this.checked)"
+                               ${isSelected ? 'checked' : ''}>
+                    </td>
                     <td><strong>${user.id}</strong></td>
                     <td>
                         <div class="d-flex align-items-center">
-                            <div class="avatar me-3 bg-primary rounded-circle d-flex align-items-center justify-content-center" 
-                                 style="width: 40px; height: 40px;">
-                                <span class="text-white fw-bold">
-                                    ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
-                                </span>
-                            </div>
+                            ${getUserAvatar(user)}
                             <div>
                                 <div class="fw-bold">${user.firstName} ${user.lastName}</div>
                                 <div class="text-muted small">
-                                     ${user.username || 'без username'}
+                                    ${user.username || 'без username'}
                                     ${user.email ? `• ${user.email}` : ''}
                                 </div>
+                                ${user.location ? `<div class="small text-muted"><i class="fas fa-map-marker-alt me-1"></i>${user.location}</div>` : ''}
                             </div>
                         </div>
                     </td>
                     <td>
-                        <code class="bg-light p-1 rounded">${user.vkUserId}</code>
+                        <div><code class="bg-light p-1 rounded">${user.vkUserId}</code></div>
+                        <div class="small text-muted mt-1">
+                            ${user.phone || 'телефон не указан'}
+                        </div>
                     </td>
                     <td>
-                        ${getStatusBadge(user)}
-                        <div class="small text-muted mt-1">${user.status}</div>
+                        <div>${getStatusBadge(user)}</div>
+                        ${user.notes ? `<div class="small text-muted mt-1" title="${user.notes}"><i class="fas fa-sticky-note"></i> Заметки</div>` : ''}
                     </td>
                     <td>
-                        <span class="badge bg-info rounded-pill">${user.messageCount}</span>
+                        <div class="text-center">
+                            <span class="badge bg-info rounded-pill fs-6">${user.messageCount}</span>
+                            ${user.messageCount > 0 ? `
+                                <div class="small text-muted mt-1">
+                                    <i class="fas fa-comment"></i> ${user.messageCount}
+                                </div>
+                            ` : ''}
+                        </div>
                     </td>
                     <td>
                         <div class="small">${formatDate(user.registrationDate)}</div>
+                        <div class="text-muted smaller">${new Date(user.registrationDate).toLocaleDateString('ru-RU')}</div>
                     </td>
                     <td>
                         <div class="small">${formatDate(user.lastActivity)}</div>
+                        <div class="text-muted smaller">${user.isOnline ? 'Сейчас онлайн' : 'Не в сети'}</div>
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm" role="group">
                             <button class="btn btn-outline-primary" onclick="viewUser(${user.id})" title="Просмотр">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            <button class="btn btn-outline-warning" onclick="editUser(${user.id})" title="Редактировать">
-                                <i class="fas fa-edit"></i>
+                            <button class="btn btn-outline-success" onclick="prepareSendMessage(${user.id}, '${user.firstName} ${user.lastName}')" title="Отправить сообщение">
+                                <i class="fas fa-paper-plane"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deleteUser(${user.id})" title="Удалить">
-                                <i class="fas fa-trash"></i>
+                            <button class="btn btn-outline-warning" onclick="toggleUserStatus(${user.id})"
+                                    title="${user.isActive ? 'Деактивировать' : 'Активировать'}">
+                                <i class="fas ${user.isActive ? 'fa-user-slash' : 'fa-user-check'}"></i>
+                            </button>
+                            ${user.isBanned ? `
+                                <button class="btn btn-outline-success" onclick="unbanUser(${user.id})" title="Разбанить">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                            ` : `
+                                <button class="btn btn-outline-danger" onclick="prepareBanUser(${user.id}, '${user.firstName} ${user.lastName}')" title="Забанить">
+                                    <i class="fas fa-ban"></i>
+                                </button>
+                            `}
+                            <button class="btn btn-outline-info" onclick="refreshUserFromVkById(${user.id})" title="Обновить из VK">
+                                <i class="fas fa-redo"></i>
                             </button>
                         </div>
                     </td>
                 `;
-                
+
                 tbody.appendChild(row);
             });
 
             // Показываем таблицу и пагинацию
             showElement('usersTable');
             showElement('paginationContainer');
-            
+
             // Обновляем пагинацию
-            updatePagination(data.page, data.totalPages);
-            
+            updatePagination(data.pagination.page, data.pagination.totalPages);
+
             // Обновляем счетчики
             setElementText('currentCount', users.length);
-            setElementText('totalCount', data.totalCount);
+            setElementText('totalCount', data.pagination.totalCount);
+
+            // Обновляем время обновления статистики
+            setElementText('statsTime', new Date().toLocaleTimeString('ru-RU'));
         }
 
         // Обновление статистики
         function updateStats(data) {
-            setElementText('totalUsers', data.totalCount);
-            setElementText('activeUsers', data.activeCount || 0);
-            setElementText('onlineUsers', data.onlineCount || 0);
-            setElementText('newToday', data.newTodayCount || 0);
+            setElementText('totalUsers', data.stats.totalUsers || 0);
+            setElementText('activeUsers', data.stats.activeUsers || 0);
+            setElementText('onlineUsers', data.stats.onlineUsers || 0);
+            setElementText('newToday', data.stats.newToday || 0);
+
+            // Проценты
+            const total = data.stats.totalUsers || 1;
+            const activePercent = Math.round((data.stats.activeUsers / total) * 100);
+            const onlinePercent = data.stats.activeUsers > 0
+                ? Math.round((data.stats.onlineUsers / data.stats.activeUsers) * 100)
+                : 0;
+
+            setElementText('activePercent', `${activePercent}%`);
+            setElementText('onlinePercent', `${onlinePercent}%`);
         }
 
         // Обновление пагинации
@@ -336,6 +779,16 @@
             pagination.innerHTML = '';
 
             if (totalPages <= 1) return;
+
+            // Кнопка "Первая"
+            const firstLi = document.createElement('li');
+            firstLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+            firstLi.innerHTML = `
+                <a class="page-link" href="#" ${currentPage > 1 ? `onclick="changePage(1)"` : ''}>
+                    <i class="fas fa-angle-double-left"></i>
+                </a>
+            `;
+            pagination.appendChild(firstLi);
 
             // Кнопка "Назад"
             const prevLi = document.createElement('li');
@@ -374,17 +827,51 @@
                 </a>
             `;
             pagination.appendChild(nextLi);
+
+            // Кнопка "Последняя"
+            const lastLi = document.createElement('li');
+            lastLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+            lastLi.innerHTML = `
+                <a class="page-link" href="#" ${currentPage < totalPages ? `onclick="changePage(${totalPages})"` : ''}>
+                    <i class="fas fa-angle-double-right"></i>
+                </a>
+            `;
+            pagination.appendChild(lastLi);
         }
 
         // Смена страницы
         function changePage(page) {
+            if (page < 1 || page > totalPages) return;
             currentPage = page;
             loadUsers(page);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Изменение размера страницы
+        function changePageSize(size) {
+            currentPageSize = parseInt(size);
+            currentPage = 1;
+            loadUsers(currentPage);
+        }
+
+        // Изменение сортировки
+        function changeSort(sort) {
+            currentSort = sort;
+            currentPage = 1;
+            loadUsers(currentPage);
         }
 
         // Поиск пользователей
         function searchUsers() {
             currentSearch = document.getElementById('searchInput').value;
+            currentPage = 1;
+            loadUsers(currentPage);
+        }
+
+        // Очистка поиска
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            currentSearch = '';
             currentPage = 1;
             loadUsers(currentPage);
         }
@@ -396,34 +883,466 @@
             loadUsers(currentPage);
         }
 
+        // Переключение информации из VK
+        function toggleVkInfo() {
+            includeVkInfo = document.getElementById('includeVkInfo').checked;
+            loadUsers(currentPage);
+        }
+
+        // Синхронизация с VK
+        async function syncWithVk(fullSync = false) {
+            if (!confirm(`Вы уверены, что хотите синхронизировать ${fullSync ? 'всех' : 'новых'} пользователей с VK?`)) {
+                return;
+            }
+
+            try {
+                showNotification('Синхронизация с VK...', 'info');
+                const response = await fetch(`/api/v1/users/sync-vk?fullSync=${fullSync}`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(result.data.message, 'success');
+                    loadUsers(currentPage);
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка синхронизации: ' + error.message, 'error');
+            }
+        }
+
+        // Получить онлайн пользователей
+        async function getOnlineUsers() {
+            try {
+                const response = await fetch('/api/v1/users/online');
+                const result = await response.json();
+
+                if (result.success) {
+                    setElementText('onlineUsers', result.data.count);
+                    showNotification(`Найдено ${result.data.count} онлайн пользователей`, 'success');
+                }
+            } catch (error) {
+                showNotification('Ошибка получения онлайн пользователей: ' + error.message, 'error');
+            }
+        }
+
+        // Получить забаненных пользователей
+        async function getBannedUsers() {
+            try {
+                const response = await fetch('/api/v1/users/banned');
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('statusFilter').value = 'banned';
+                    setFilter('banned');
+                    showNotification(`Найдено ${result.data.count} забаненных пользователей`, 'info');
+                }
+            } catch (error) {
+                showNotification('Ошибка получения забаненных пользователей: ' + error.message, 'error');
+            }
+        }
+
+        // Получить активных пользователей
+        async function getActiveUsers() {
+            try {
+                const response = await fetch('/api/v1/users/active');
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('statusFilter').value = 'active';
+                    setFilter('active');
+                    showNotification(`Найдено ${result.data.count} активных пользователей`, 'success');
+                }
+            } catch (error) {
+                showNotification('Ошибка получения активных пользователей: ' + error.message, 'error');
+            }
+        }
+
+        // Обновить всех пользователей из VK
+        async function refreshAllFromVk() {
+            if (!confirm('Обновить информацию о всех пользователях из VK? Это может занять некоторое время.')) {
+                return;
+            }
+
+            const rows = document.querySelectorAll('#usersTableBody tr');
+            const userIds = [];
+
+            rows.forEach(row => {
+                const userId = row.querySelector('td:nth-child(2) strong').textContent;
+                userIds.push(parseInt(userId));
+            });
+
+            let updatedCount = 0;
+
+            for (const userId of userIds) {
+                try {
+                    await refreshUserFromVkById(userId);
+                    updatedCount++;
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Задержка между запросами
+                } catch (error) {
+                    console.error(`Ошибка обновления пользователя ${userId}:`, error);
+                }
+            }
+
+            showNotification(`Обновлено ${updatedCount} пользователей из VK`, 'success');
+            loadUsers(currentPage);
+        }
+
+        // ==================== УПРАВЛЕНИЕ ВЫБРАННЫМИ ПОЛЬЗОВАТЕЛЯМИ ====================
+
+        // Переключить выбор всех пользователей
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll').checked;
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+
+            checkboxes.forEach(checkbox => {
+                const userId = parseInt(checkbox.getAttribute('data-user-id'));
+                checkbox.checked = selectAll;
+
+                if (selectAll) {
+                    selectedUsers.add(userId);
+                } else {
+                    selectedUsers.delete(userId);
+                }
+            });
+
+            updateSelectedCount();
+            updateGroupActions();
+        }
+
+        // Переключить выбор пользователя
+        function toggleUserSelection(userId, isSelected) {
+            if (isSelected) {
+                selectedUsers.add(userId);
+            } else {
+                selectedUsers.delete(userId);
+                document.getElementById('selectAll').checked = false;
+            }
+
+            updateSelectedCount();
+            updateGroupActions();
+        }
+
+        // Обновить счетчик выбранных
+        function updateSelectedCount() {
+            setElementText('selectedCount', selectedUsers.size);
+        }
+
+        // Обновить видимость групповых действий
+        function updateGroupActions() {
+            if (selectedUsers.size > 0) {
+                showElement('groupActionsCard');
+            } else {
+                hideElement('groupActionsCard');
+            }
+        }
+
+        // Отправить сообщение выбранным
+        async function sendMessageToSelected() {
+            if (selectedUsers.size === 0) return;
+
+            const message = prompt('Введите сообщение для выбранных пользователей:');
+            if (!message) return;
+
+            if (!confirm(`Отправить сообщение ${selectedUsers.size} пользователям?`)) {
+                return;
+            }
+
+            let sentCount = 0;
+            let failedCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    const response = await fetch(`/api/v1/users/${userId}/send-real-message`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        sentCount++;
+                    } else {
+                        failedCount++;
+                    }
+                } catch (error) {
+                    failedCount++;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 50)); // Небольшая задержка
+            }
+
+            showNotification(`Сообщение отправлено: ${sentCount} успешно, ${failedCount} с ошибкой`,
+                failedCount === 0 ? 'success' : 'warning');
+        }
+
+        // Активировать выбранных
+        async function activateSelected() {
+            if (selectedUsers.size === 0) return;
+
+            if (!confirm(`Активировать ${selectedUsers.size} пользователей?`)) {
+                return;
+            }
+
+            let successCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    const response = await fetch(`/api/v1/users/${userId}/toggle-status`, {
+                        method: 'POST'
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        successCount++;
+                    }
+                } catch (error) {
+                    console.error(`Ошибка активации пользователя ${userId}:`, error);
+                }
+            }
+
+            showNotification(`Активировано ${successCount} пользователей`, 'success');
+            loadUsers(currentPage);
+        }
+
+        // Деактивировать выбранных
+        async function deactivateSelected() {
+            if (selectedUsers.size === 0) return;
+
+            if (!confirm(`Деактивировать ${selectedUsers.size} пользователей?`)) {
+                return;
+            }
+
+            let successCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    // Сначала получаем пользователя
+                    const userResponse = await fetch(`/api/v1/users/${userId}`);
+                    const userResult = await userResponse.json();
+
+                    if (userResult.success && userResult.data.user.isActive) {
+                        const response = await fetch(`/api/v1/users/${userId}/toggle-status`, {
+                            method: 'POST'
+                        });
+
+                        const result = await response.json();
+                        if (result.success) {
+                            successCount++;
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Ошибка деактивации пользователя ${userId}:`, error);
+                }
+            }
+
+            showNotification(`Деактивировано ${successCount} пользователей`, 'warning');
+            loadUsers(currentPage);
+        }
+
+        // Забанить выбранных
+        async function banSelected() {
+            if (selectedUsers.size === 0) return;
+
+            const reason = prompt('Введите причину бана для выбранных пользователей:');
+            if (!reason) return;
+
+            if (!confirm(`Забанить ${selectedUsers.size} пользователей? Причина: ${reason}`)) {
+                return;
+            }
+
+            let successCount = 0;
+            let failedCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    const response = await fetch(`/api/v1/users/${userId}/ban`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        successCount++;
+                    } else {
+                        failedCount++;
+                    }
+                } catch (error) {
+                    failedCount++;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            showNotification(`Забанено: ${successCount} успешно, ${failedCount} с ошибкой`,
+                failedCount === 0 ? 'success' : 'warning');
+            loadUsers(currentPage);
+        }
+
+        // Разбанить выбранных
+        async function unbanSelected() {
+            if (selectedUsers.size === 0) return;
+
+            if (!confirm(`Разбанить ${selectedUsers.size} пользователей?`)) {
+                return;
+            }
+
+            let successCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    const response = await fetch(`/api/v1/users/${userId}/unban`, {
+                        method: 'POST'
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        successCount++;
+                    }
+                } catch (error) {
+                    console.error(`Ошибка разбана пользователя ${userId}:`, error);
+                }
+            }
+
+            showNotification(`Разбанено ${successCount} пользователей`, 'success');
+            loadUsers(currentPage);
+        }
+
+        // Обновить выбранных из VK
+        async function refreshSelectedFromVk() {
+            if (selectedUsers.size === 0) return;
+
+            if (!confirm(`Обновить информацию о ${selectedUsers.size} пользователях из VK?`)) {
+                return;
+            }
+
+            let updatedCount = 0;
+
+            for (const userId of selectedUsers) {
+                try {
+                    await refreshUserFromVkById(userId);
+                    updatedCount++;
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    console.error(`Ошибка обновления пользователя ${userId}:`, error);
+                }
+            }
+
+            showNotification(`Обновлено ${updatedCount} пользователей из VK`, 'success');
+        }
+
+        // ==================== ДЕЙСТВИЯ С ОДНИМ ПОЛЬЗОВАТЕЛЕМ ====================
+
         // Просмотр пользователя
         async function viewUser(userId) {
             try {
-                const response = await fetch(`/api/v1/users/${userId}`);
+                const response = await fetch(`/api/v1/users/${userId}?includeMessages=true&includeVkInfo=true`);
                 if (!response.ok) throw new Error('Пользователь не найден');
-                
+
                 const result = await response.json();
-                
+
                 if (result.success) {
                     const user = result.data.user;
+                    const messages = result.data.recentMessages;
+                    const vkInfo = result.data.vkInfo;
+                    currentUserId = userId;
+
                     const content = document.getElementById('userDetailsContent');
-                    
+
+                    let messagesHtml = '';
+                    if (messages && messages.length > 0) {
+                        messagesHtml = `
+                            <div class="card mt-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Последние сообщения (${messages.length})</h6>
+                                </div>
+                                <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                                    ${messages.map(msg => `
+                                        <div class="mb-2 ${msg.isFromUser ? 'text-end' : ''}">
+                                            <div class="alert ${msg.isFromUser ? 'alert-primary' : 'alert-secondary'} py-2 px-3 mb-1">
+                                                ${msg.messageText}
+                                            </div>
+                                            <small class="text-muted">${formatDate(msg.messageDate)}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    let vkInfoHtml = '';
+                    if (vkInfo) {
+                        vkInfoHtml = `
+                            <div class="card mt-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Информация из VK</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4 text-center">
+                                            ${vkInfo.photo_100 ? `
+                                                <img src="${vkInfo.photo_100}" class="img-thumbnail mb-2" style="max-width: 150px;">
+                                            ` : ''}
+                                            <div>
+                                                <span class="badge ${vkInfo.online ? 'bg-success' : 'bg-secondary'}">
+                                                    ${vkInfo.online ? 'Онлайн' : 'Офлайн'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-8">
+                                            <dl class="row mb-0">
+                                                ${vkInfo.city ? `
+                                                    <dt class="col-sm-4">Город:</dt>
+                                                    <dd class="col-sm-8">${vkInfo.city.title}</dd>
+                                                ` : ''}
+                                                ${vkInfo.country ? `
+                                                    <dt class="col-sm-4">Страна:</dt>
+                                                    <dd class="col-sm-8">${vkInfo.country.title}</dd>
+                                                ` : ''}
+                                                ${vkInfo.bdate ? `
+                                                    <dt class="col-sm-4">Дата рождения:</dt>
+                                                    <dd class="col-sm-8">${vkInfo.bdate}</dd>
+                                                ` : ''}
+                                                ${vkInfo.domain ? `
+                                                    <dt class="col-sm-4">Ссылка:</dt>
+                                                    <dd class="col-sm-8">
+                                                        <a href="https://vk.com/${vkInfo.domain}" target="_blank">
+                                                            vk.com/${vkInfo.domain}
+                                                        </a>
+                                                    </dd>
+                                                ` : ''}
+                                            </dl>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+
                     content.innerHTML = `
                         <div class="row">
                             <div class="col-md-4 text-center mb-4">
-                                <div class="avatar-lg bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" 
-                                     style="width: 100px; height: 100px;">
-                                    <span class="text-white fs-2 fw-bold">
-                                        ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
-                                    </span>
-                                </div>
+                                ${user.photoUrl ? `
+                                    <img src="${user.photoUrl}" class="img-thumbnail mb-3" style="max-width: 200px;">
+                                ` : `
+                                    <div class="avatar-lg bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3"
+                                         style="width: 150px; height: 150px;">
+                                        <span class="text-white fs-1 fw-bold">
+                                            ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
+                                        </span>
+                                    </div>
+                                `}
                                 <h4>${user.firstName} ${user.lastName}</h4>
                                 <p class="text-muted">${user.username || 'без username'}</p>
                                 <div class="mt-3">
                                     ${getStatusBadge(user)}
                                 </div>
                             </div>
-                            
+
                             <div class="col-md-8">
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
@@ -434,7 +1353,7 @@
                                         <label class="form-label text-muted">VK ID:</label>
                                         <div><code>${user.vkUserId}</code></div>
                                     </div>
-                                    
+
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Email:</label>
                                         <div>${user.email || '<span class="text-muted">Не указан</span>'}</div>
@@ -443,52 +1362,246 @@
                                         <label class="form-label text-muted">Телефон:</label>
                                         <div>${user.phone || '<span class="text-muted">Не указан</span>'}</div>
                                     </div>
-                                    
+
                                     <div class="col-md-12 mb-3">
                                         <label class="form-label text-muted">Местоположение:</label>
                                         <div>${user.location || '<span class="text-muted">Не указано</span>'}</div>
                                     </div>
-                                    
+
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Сообщений:</label>
-                                        <div><span class="badge bg-info">${user.messageCount}</span></div>
+                                        <div><span class="badge bg-info fs-6">${user.messageCount}</span></div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Дата регистрации:</label>
-                                        <div>${formatDate(user.registrationDate)}</div>
+                                        <div>${new Date(user.registrationDate).toLocaleString('ru-RU')}</div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Последняя активность:</label>
                                         <div>${formatDate(user.lastActivity)}</div>
                                     </div>
-                                    
+
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Активен:</label>
-                                        <div>${user.isActive ? '✅ Да' : '❌ Нет'}</div>
+                                        <div>${user.isActive ? '<span class="text-success">✅ Да</span>' : '<span class="text-danger">❌ Нет</span>'}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Онлайн:</label>
-                                        <div>${user.isOnline ? '✅ Да' : '❌ Нет'}</div>
+                                        <div>${user.isOnline ? '<span class="text-success">✅ Да</span>' : '<span class="text-danger">❌ Нет</span>'}</div>
                                     </div>
-                                    
+
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Забанен:</label>
-                                        <div>${user.isBanned ? '❌ Да' : '✅ Нет'}</div>
+                                        <div>${user.isBanned ? '<span class="text-danger">❌ Да</span>' : '<span class="text-success">✅ Нет</span>'}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Тип:</label>
                                         <div><span class="badge bg-secondary">${user.status}</span></div>
                                     </div>
+
+                                    ${user.notes ? `
+                                        <div class="col-md-12 mb-3">
+                                            <label class="form-label text-muted">Заметки:</label>
+                                            <div class="border rounded p-2 bg-light">${user.notes}</div>
+                                        </div>
+                                    ` : ''}
                                 </div>
                             </div>
                         </div>
+
+                        ${messagesHtml}
+                        ${vkInfoHtml}
                     `;
-                    
+
                     const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
                     modal.show();
                 }
             } catch (error) {
-                alert('Ошибка при загрузке данных пользователя: ' + error.message);
+                showNotification('Ошибка при загрузке данных пользователя: ' + error.message, 'error');
+            }
+        }
+
+        // Подготовка к отправке сообщения
+        function prepareSendMessage(userId, userName) {
+            currentUserId = userId;
+            currentUserName = userName;
+
+            setElementText('messageRecipient', `${userName} (ID: ${userId})`);
+            document.getElementById('messageText').value = '';
+            document.getElementById('charCount').textContent = '0';
+
+            const modal = new bootstrap.Modal(document.getElementById('sendMessageModal'));
+            modal.show();
+        }
+
+        // Отправить сообщение
+        async function sendMessageConfirmed() {
+            const message = document.getElementById('messageText').value;
+
+            if (!message.trim()) {
+                showNotification('Введите текст сообщения', 'warning');
+                return;
+            }
+
+            if (message.length > 4000) {
+                showNotification('Сообщение слишком длинное (максимум 4000 символов)', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/users/${currentUserId}/send-real-message`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Сообщение отправлено', 'success');
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('sendMessageModal'));
+                    modal.hide();
+
+                    // Обновляем счетчик сообщений
+                    loadUsers(currentPage);
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка отправки сообщения: ' + error.message, 'error');
+            }
+        }
+
+        // Подготовка к бану
+        function prepareBanUser(userId, userName) {
+            currentUserId = userId;
+            currentUserName = userName;
+
+            setElementText('banRecipient', `${userName} (ID: ${userId})`);
+            document.getElementById('banReason').value = '';
+            document.getElementById('banDuration').value = '0';
+            document.getElementById('banComment').checked = true;
+
+            const modal = new bootstrap.Modal(document.getElementById('banUserModal'));
+            modal.show();
+        }
+
+        // Забанить пользователя
+        async function banConfirmed() {
+            const reason = document.getElementById('banReason').value;
+
+            if (!reason.trim()) {
+                showNotification('Введите причину бана', 'warning');
+                return;
+            }
+
+            if (!confirm(`Забанить пользователя ${currentUserName}? Причина: ${reason}`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/users/${currentUserId}/ban`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        reason: reason,
+                        durationHours: parseInt(document.getElementById('banDuration').value) || 0,
+                        comment: document.getElementById('banComment').checked ? reason : null
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Пользователь забанен', 'success');
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('banUserModal'));
+                    modal.hide();
+                    loadUsers(currentPage);
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка бана пользователя: ' + error.message, 'error');
+            }
+        }
+
+        // Разбанить пользователя
+        async function unbanUser(userId) {
+            if (!confirm('Разбанить этого пользователя?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/users/${userId}/unban`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Пользователь разбанен', 'success');
+                    loadUsers(currentPage);
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка разбана пользователя: ' + error.message, 'error');
+            }
+        }
+
+        // Переключить статус пользователя
+        async function toggleUserStatus(userId) {
+            try {
+                const response = await fetch(`/api/v1/users/${userId}/toggle-status`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(`Пользователь ${result.data.action}`, 'success');
+                    loadUsers(currentPage);
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка изменения статуса: ' + error.message, 'error');
+            }
+        }
+
+        // Обновить пользователя из VK (из модального окна)
+        async function refreshUserFromVk() {
+            if (!currentUserId) return;
+
+            await refreshUserFromVkById(currentUserId);
+
+            // Закрываем модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById('userDetailsModal'));
+            modal.hide();
+
+            // Показываем обновленные данные
+            setTimeout(() => viewUser(currentUserId), 500);
+        }
+
+        // Обновить пользователя из VK по ID
+        async function refreshUserFromVkById(userId) {
+            try {
+                const response = await fetch(`/api/v1/users/${userId}/refresh-vk`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Данные обновлены из VK', 'success');
+                    return true;
+                } else {
+                    showNotification('Ошибка: ' + result.message, 'error');
+                    return false;
+                }
+            } catch (error) {
+                showNotification('Ошибка обновления из VK: ' + error.message, 'error');
+                return false;
             }
         }
 
@@ -498,17 +1611,17 @@
                 const response = await fetch('/api/v1/users/test', {
                     method: 'POST'
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (result.success) {
-                    alert('Тестовый пользователь создан!');
+                    showNotification('Тестовый пользователь создан!', 'success');
                     loadUsers(currentPage);
                 } else {
-                    alert('Ошибка: ' + result.message);
+                    showNotification('Ошибка: ' + result.message, 'error');
                 }
             } catch (error) {
-                alert('Ошибка: ' + error.message);
+                showNotification('Ошибка: ' + error.message, 'error');
             }
         }
 
@@ -518,83 +1631,56 @@
                 const response = await fetch(`/api/v1/users/bulk-test?count=${count}`, {
                     method: 'POST'
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (result.success) {
-                    alert(`Создано ${result.data.count} тестовых пользователей!`);
+                    showNotification(`Создано ${result.data.count} тестовых пользователей!`, 'success');
                     loadUsers(currentPage);
                 } else {
-                    alert('Ошибка: ' + result.message);
+                    showNotification('Ошибка: ' + result.message, 'error');
                 }
             } catch (error) {
-                alert('Ошибка: ' + error.message);
+                showNotification('Ошибка: ' + error.message, 'error');
             }
-        }
-
-        // Редактирование пользователя (заглушка)
-        function editUser(userId) {
-            alert(`Редактирование пользователя ID: ${userId}\n(функция в разработке)`);
-        }
-
-        // Удаление пользователя
-        async function deleteUser(userId) {
-            if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/v1/users/${userId}`, {
-                    method: 'DELETE'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    alert('Пользователь удален');
-                    loadUsers(currentPage);
-                } else {
-                    alert('Ошибка: ' + result.message);
-                }
-            } catch (error) {
-                alert('Ошибка: ' + error.message);
-            }
-        }
-
-        // Показать ошибку
-        function showError(message) {
-            hideElement('usersTable');
-            hideElement('paginationContainer');
-            hideElement('noDataMessage');
-            
-            const container = document.getElementById('usersTableBody').parentElement;
-            container.innerHTML = `
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    ${message}
-                    <button class="btn btn-sm btn-outline-danger ms-3" onclick="loadUsers()">
-                        Попробовать снова
-                    </button>
-                </div>
-            `;
         }
 
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
+            // Проверяем статус VK API
+            checkVkStatus();
+
             // Загружаем пользователей
             loadUsers();
-            
+
             // Настройка поиска по Enter
             document.getElementById('searchInput').addEventListener('keyup', function(event) {
                 if (event.key === 'Enter') {
                     searchUsers();
                 }
             });
-            
-            // Автообновление каждые 30 секунд
+
+            // Подсчет символов в сообщении
+            document.getElementById('messageText')?.addEventListener('input', function() {
+                const count = this.value.length;
+                document.getElementById('charCount').textContent = count;
+
+                if (count > 4000) {
+                    document.getElementById('charCount').classList.add('text-danger');
+                } else {
+                    document.getElementById('charCount').classList.remove('text-danger');
+                }
+            });
+
+            // Автообновление каждые 60 секунд
             setInterval(() => {
                 loadUsers(currentPage);
-            }, 30000);
+            }, 60000);
+
+            // Обновляем время в статистике каждую минуту
+            setInterval(() => {
+                setElementText('statsTime', new Date().toLocaleTimeString('ru-RU'));
+            }, 60000);
         });
     </script>
 
@@ -604,31 +1690,81 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .avatar-lg {
             width: 100px;
             height: 100px;
             font-size: 2rem;
         }
-        
+
         .table th {
             border-top: none;
             font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #6c757d;
         }
-        
+
+        .table td {
+            vertical-align: middle;
+        }
+
         .card {
             border: none;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            border-radius: 10px;
         }
-        
+
         .card-header {
             background-color: #f8f9fa;
             border-bottom: 1px solid #e9ecef;
+            border-radius: 10px 10px 0 0 !important;
+            padding: 1rem 1.25rem;
         }
-        
+
         .badge {
-            font-size: 0.85em;
+            font-size: 0.75em;
             padding: 0.35em 0.65em;
+            font-weight: 500;
+        }
+
+        .user-checkbox {
+            cursor: pointer;
+        }
+
+        .page-item.active .page-link {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+
+        .form-check-input:checked {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+
+        .smaller {
+            font-size: 0.8rem;
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+
+        .hover-shadow:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .scrollable-table {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        #notificationContainer {
+            max-width: 400px;
+        }
+
+        .alert {
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
     </style>
 }

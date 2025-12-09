@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using AdminPanel.Configs;
 using AdminPanel.Models;
+using System.Text.Json;
 
 namespace AdminPanel.Services
 {
@@ -11,22 +12,756 @@ namespace AdminPanel.Services
         private readonly string _connectionString;
         private readonly ILogger<UserService> _logger;
         private readonly BotPathsConfig _botPaths;
+        private readonly VkApiService _vkApiService;
+        private readonly bool _enableRealVkIntegration;
 
         public UserService(
             IConfiguration configuration,
             ILogger<UserService> logger,
-            IOptions<BotPathsConfig> botPathsConfig)
+            IOptions<BotPathsConfig> botPathsConfig,
+            VkApiService vkApiService)
         {
             _logger = logger;
             _botPaths = botPathsConfig.Value;
+            _vkApiService = vkApiService;
 
             var dbPath = _botPaths.DatabasePath;
             _connectionString = $"Data Source={dbPath};Pooling=true;Cache=Shared;";
 
-            _logger.LogInformation("UserService инициализирован. Путь к БД: {DbPath}", dbPath);
+            _enableRealVkIntegration = configuration.GetValue<bool>("AdminSettings:EnableRealVkIntegration", false);
 
-            // ГАРАНТИРОВАННО создаем таблицу при запуске
+            _logger.LogInformation("UserService инициализирован. Реальная интеграция с VK: {Enabled}",
+                _enableRealVkIntegration && _vkApiService.IsEnabled);
+
+            // Гарантированно создаем таблицу при запуске
             InitializeDatabase();
+
+            // Если включена интеграция с VK - запускаем синхронизацию
+            if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+            {
+                Task.Run(async () => await InitialSyncWithVkAsync());
+            }
+        }
+
+        private async Task InitialSyncWithVkAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Начинаем начальную синхронизацию с VK...");
+
+                var userIds = await _vkApiService.GetAllUserIdsFromConversationsAsync();
+
+                if (userIds.Any())
+                {
+                    await SyncVkUsersAsync(userIds);
+                    _logger.LogInformation("Начальная синхронизация завершена. Синхронизировано пользователей: {Count}", userIds.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при начальной синхронизации с VK");
+            }
+        }
+
+        // ==================== СИНХРОНИЗАЦИЯ С VK ====================
+
+        public async Task<int> SyncVkUsersAsync(List<long> vkUserIds)
+        {
+            var syncedCount = 0;
+
+            if (!vkUserIds.Any())
+                return 0;
+
+            try
+            {
+                // Получаем информацию о пользователях из VK
+                var vkUsers = await _vkApiService.GetUsersInfoAsync(vkUserIds);
+
+                foreach (var vkUser in vkUsers)
+                {
+                    try
+                    {
+                        // Ищем пользователя в базе
+                        var existingUser = await GetUserAsync(vkUser.Id);
+
+                        if (existingUser == null)
+                        {
+                            // Создаем нового пользователя из данных VK
+                            var newUser = new User
+                            {
+                                VkUserId = vkUser.Id,
+                                FirstName = vkUser.FirstName,
+                                LastName = vkUser.LastName,
+                                Username = vkUser.Domain ?? string.Empty,
+                                IsActive = true,
+                                IsOnline = vkUser.IsOnline,
+                                LastActivity = vkUser.LastSeenDate ?? DateTime.Now,
+                                MessageCount = 0,
+                                RegistrationDate = DateTime.Now,
+                                IsBanned = false,
+                                Status = "user",
+                                PhotoUrl = vkUser.PhotoUrl,
+                                Location = vkUser.City?.Title ?? vkUser.Country?.Title ?? string.Empty
+                            };
+
+                            await AddOrUpdateUserAsyncInternal(newUser);
+                            syncedCount++;
+                        }
+                        else
+                        {
+                            // Обновляем существующего пользователя
+                            existingUser.FirstName = vkUser.FirstName;
+                            existingUser.LastName = vkUser.LastName;
+                            existingUser.Username = vkUser.Domain ?? existingUser.Username;
+                            existingUser.IsOnline = vkUser.IsOnline;
+                            existingUser.LastActivity = vkUser.LastSeenDate ?? existingUser.LastActivity;
+                            existingUser.PhotoUrl = vkUser.PhotoUrl ?? existingUser.PhotoUrl;
+                            existingUser.Location = vkUser.City?.Title ?? vkUser.Country?.Title ?? existingUser.Location;
+
+                            await AddOrUpdateUserAsyncInternal(existingUser);
+                            syncedCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Ошибка синхронизации пользователя {VkUserId}", vkUser.Id);
+                    }
+                }
+
+                _logger.LogInformation("Синхронизировано {Count} пользователей из VK", syncedCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка синхронизации с VK");
+            }
+
+            return syncedCount;
+        }
+
+        public async Task<int> SyncWithVkAsync(bool fullSync = false)
+        {
+            try
+            {
+                List<long> userIds;
+
+                if (fullSync)
+                {
+                    _logger.LogInformation("Запущена полная синхронизация с VK");
+                    userIds = await _vkApiService.GetAllUserIdsFromConversationsAsync();
+                }
+                else
+                {
+                    _logger.LogInformation("Запущена частичная синхронизация с VK");
+                    userIds = await _vkApiService.GetConversationMembersAsync();
+                }
+
+                return await SyncVkUsersAsync(userIds);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка синхронизации с VK");
+                return 0;
+            }
+        }
+
+        public async Task UpdateUserFromVkAsync(long vkUserId)
+        {
+            try
+            {
+                var vkUser = await _vkApiService.GetUserInfoAsync(vkUserId);
+                if (vkUser == null)
+                    return;
+
+                var existingUser = await GetUserAsync(vkUserId);
+
+                if (existingUser == null)
+                {
+                    // Создаем нового пользователя
+                    var newUser = new User
+                    {
+                        VkUserId = vkUser.Id,
+                        FirstName = vkUser.FirstName,
+                        LastName = vkUser.LastName,
+                        Username = vkUser.Domain ?? string.Empty,
+                        IsActive = true,
+                        IsOnline = vkUser.IsOnline,
+                        LastActivity = vkUser.LastSeenDate ?? DateTime.Now,
+                        MessageCount = 0,
+                        RegistrationDate = DateTime.Now,
+                        IsBanned = false,
+                        Status = "user",
+                        PhotoUrl = vkUser.PhotoUrl,
+                        Location = vkUser.City?.Title ?? vkUser.Country?.Title ?? string.Empty
+                    };
+
+                    await AddOrUpdateUserAsyncInternal(newUser);
+                }
+                else
+                {
+                    // Обновляем существующего
+                    existingUser.FirstName = vkUser.FirstName;
+                    existingUser.LastName = vkUser.LastName;
+                    existingUser.Username = vkUser.Domain ?? existingUser.Username;
+                    existingUser.IsOnline = vkUser.IsOnline;
+                    existingUser.LastActivity = vkUser.LastSeenDate ?? existingUser.LastActivity;
+                    existingUser.PhotoUrl = vkUser.PhotoUrl ?? existingUser.PhotoUrl;
+                    existingUser.Location = vkUser.City?.Title ?? vkUser.Country?.Title ?? existingUser.Location;
+
+                    await AddOrUpdateUserAsyncInternal(existingUser);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления пользователя {VkUserId} из VK", vkUserId);
+            }
+        }
+
+        // ==================== ДЕЙСТВИЯ С ПОЛЬЗОВАТЕЛЯМИ ====================
+
+        public async Task<bool> BanUserAsync(long vkUserId, string reason)
+        {
+            try
+            {
+                bool vkBanResult = false;
+
+                // Пытаемся забанить в VK
+                if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    vkBanResult = await _vkApiService.BanUserAsync(vkUserId, reason);
+                }
+
+                // Обновляем статус в локальной базе
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Users SET 
+                            IsBanned = 1, 
+                            Notes = COALESCE(Notes, '') || @Reason,
+                            UpdatedAt = CURRENT_TIMESTAMP
+                            WHERE VkUserId = @VkUserId";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@VkUserId", vkUserId);
+                cmd.Parameters.AddWithValue("@Reason", $"\nЗабанен {DateTime.Now:yyyy-MM-dd HH:mm:ss}: {reason} (VK: {(vkBanResult ? "успешно" : "ошибка")})");
+
+                var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+                _logger.LogInformation("Пользователь {VkUserId} забанен. Локально: {Local}, VK: {Vk}",
+                    vkUserId, rowsAffected > 0, vkBanResult);
+
+                return rowsAffected > 0 || vkBanResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка бана пользователя {VkUserId}", vkUserId);
+                return false;
+            }
+        }
+
+        public async Task<bool> UnbanUserAsync(long vkUserId)
+        {
+            try
+            {
+                bool vkUnbanResult = false;
+
+                // Пытаемся разбанить в VK
+                if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    vkUnbanResult = await _vkApiService.UnbanUserAsync(vkUserId);
+                }
+
+                // Обновляем статус в локальной базе
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Users SET 
+                            IsBanned = 0, 
+                            Notes = COALESCE(Notes, '') || @Note,
+                            UpdatedAt = CURRENT_TIMESTAMP
+                            WHERE VkUserId = @VkUserId";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@VkUserId", vkUserId);
+                cmd.Parameters.AddWithValue("@Note", $"\nРазбанен {DateTime.Now:yyyy-MM-dd HH:mm:ss} (VK: {(vkUnbanResult ? "успешно" : "ошибка")})");
+
+                var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+                _logger.LogInformation("Пользователь {VkUserId} разбанен. Локально: {Local}, VK: {Vk}",
+                    vkUserId, rowsAffected > 0, vkUnbanResult);
+
+                return rowsAffected > 0 || vkUnbanResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка разбана пользователя {VkUserId}", vkUserId);
+                return false;
+            }
+        }
+
+        public async Task<bool> SendMessageToVkUserAsync(long vkUserId, string message)
+        {
+            try
+            {
+                bool vkSendResult = false;
+
+                // Пытаемся отправить сообщение через VK API
+                if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    vkSendResult = await _vkApiService.SendMessageAsync(vkUserId, message);
+                }
+
+                // Сохраняем сообщение в локальную базу
+                if (vkSendResult || !_vkApiService.IsEnabled)
+                {
+                    await AddMessageAsync(vkUserId, message, false);
+                    _logger.LogInformation("Сообщение пользователю {VkUserId} отправлено. VK: {VkResult}",
+                        vkUserId, vkSendResult);
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка отправки сообщения пользователю {VkUserId}", vkUserId);
+                return false;
+            }
+        }
+
+        // ==================== УЛУЧШЕННЫЕ МЕТОДЫ ПОИСКА И ФИЛЬТРАЦИИ ====================
+
+        public async Task<UserListResponse> GetUsersAsync(
+            int page = 1,
+            int pageSize = 20,
+            string search = "",
+            string status = "all",
+            string sortBy = "newest",
+            bool includeVkInfo = false)
+        {
+            _logger.LogInformation("Получение пользователей: страница {Page}, поиск: '{Search}'", page, search);
+
+            var response = new UserListResponse
+            {
+                Page = page,
+                PageSize = pageSize,
+                Users = new List<User>()
+            };
+
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Базовые условия WHERE
+                var conditions = new List<string>();
+                var parameters = new Dictionary<string, object>();
+
+                if (!string.IsNullOrEmpty(search))
+                {
+                    conditions.Add(@"
+                        (LOWER(FirstName) LIKE @Search OR 
+                         LOWER(LastName) LIKE @Search OR 
+                         LOWER(Username) LIKE @Search OR 
+                         LOWER(Email) LIKE @Search OR
+                         LOWER(Phone) LIKE @Search OR
+                         LOWER(Location) LIKE @Search OR
+                         CAST(VkUserId AS TEXT) LIKE @Search)");
+                    parameters["@Search"] = $"%{search.ToLower()}%";
+                }
+
+                if (status != "all")
+                {
+                    switch (status)
+                    {
+                        case "active":
+                            conditions.Add("IsActive = 1 AND IsBanned = 0");
+                            break;
+                        case "inactive":
+                            conditions.Add("IsActive = 0 AND IsBanned = 0");
+                            break;
+                        case "banned":
+                            conditions.Add("IsBanned = 1");
+                            break;
+                        case "online":
+                            conditions.Add("IsOnline = 1");
+                            break;
+                        case "vip":
+                            conditions.Add("Status = 'vip' OR Status = 'admin' OR Status = 'moderator'");
+                            break;
+                        case "with_messages":
+                            conditions.Add("MessageCount > 0");
+                            break;
+                        case "new_today":
+                            conditions.Add("DATE(RegistrationDate) = DATE('now')");
+                            break;
+                    }
+                }
+
+                var whereClause = conditions.Any()
+                    ? "WHERE " + string.Join(" AND ", conditions)
+                    : "";
+
+                // Получаем общее количество
+                var countSql = $"SELECT COUNT(*) FROM Users {whereClause}";
+                using var countCmd = new SqliteCommand(countSql, connection);
+
+                foreach (var param in parameters)
+                {
+                    countCmd.Parameters.AddWithValue(param.Key, param.Value);
+                }
+
+                response.TotalCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+                response.TotalPages = (int)Math.Ceiling(response.TotalCount / (double)pageSize);
+
+                // Получаем статистику
+                await GetUserStatsAsync(connection, response);
+
+                // Сортировка
+                string orderBy = sortBy switch
+                {
+                    "oldest" => "RegistrationDate ASC",
+                    "name" => "FirstName ASC, LastName ASC",
+                    "name_desc" => "FirstName DESC, LastName DESC",
+                    "activity" => "LastActivity DESC",
+                    "activity_asc" => "LastActivity ASC",
+                    "messages" => "MessageCount DESC",
+                    "messages_asc" => "MessageCount ASC",
+                    "online" => "IsOnline DESC, LastActivity DESC",
+                    _ => "RegistrationDate DESC" // newest
+                };
+
+                // Получаем пользователей с пагинацией
+                var sql = $@"
+                    SELECT 
+                        Id, VkUserId, FirstName, LastName, Username,
+                        IsActive, IsOnline, LastActivity, MessageCount,
+                        RegistrationDate, IsBanned, Status, Email, Phone, 
+                        Location, PhotoUrl, Notes
+                    FROM Users 
+                    {whereClause}
+                    ORDER BY {orderBy}
+                    LIMIT @PageSize OFFSET @Offset";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@PageSize", pageSize);
+                cmd.Parameters.AddWithValue("@Offset", (page - 1) * pageSize);
+
+                foreach (var param in parameters)
+                {
+                    cmd.Parameters.AddWithValue(param.Key, param.Value);
+                }
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                var users = new List<User>();
+
+                while (await reader.ReadAsync())
+                {
+                    var user = new User
+                    {
+                        Id = reader.GetInt32(0),
+                        VkUserId = reader.GetInt64(1),
+                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                        IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
+                        IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
+                        LastActivity = reader.GetDateTime(7),
+                        MessageCount = reader.GetInt32(8),
+                        RegistrationDate = reader.GetDateTime(9),
+                        IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
+                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)
+                    };
+
+                    users.Add(user);
+                }
+
+                // Обновляем информацию из VK если нужно
+                if (includeVkInfo && _enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    await UpdateUsersWithVkInfo(users);
+                }
+
+                response.Users = users;
+
+                _logger.LogInformation("Загружено {Count} пользователей из {Total}", users.Count, response.TotalCount);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении пользователей");
+                throw;
+            }
+        }
+
+        private async Task UpdateUsersWithVkInfo(List<User> users)
+        {
+            try
+            {
+                var userIds = users.Select(u => u.VkUserId).ToList();
+                var vkUsers = await _vkApiService.GetUsersInfoAsync(userIds);
+
+                var vkUsersDict = vkUsers.ToDictionary(u => u.Id);
+
+                foreach (var user in users)
+                {
+                    if (vkUsersDict.TryGetValue(user.VkUserId, out var vkUser))
+                    {
+                        // Обновляем онлайн статус из VK
+                        user.IsOnline = vkUser.IsOnline;
+
+                        // Обновляем последнюю активность
+                        if (vkUser.LastSeenDate.HasValue)
+                        {
+                            user.LastActivity = vkUser.LastSeenDate.Value;
+                        }
+
+                        // Обновляем фото если его нет
+                        if (string.IsNullOrEmpty(user.PhotoUrl) && !string.IsNullOrEmpty(vkUser.PhotoUrl))
+                        {
+                            user.PhotoUrl = vkUser.PhotoUrl;
+                        }
+
+                        // Обновляем местоположение если его нет
+                        if (string.IsNullOrEmpty(user.Location) && vkUser.City != null)
+                        {
+                            user.Location = vkUser.City.Title;
+                        }
+
+                        // Обновляем в базе если нужно
+                        await UpdateUserFromVkAsync(user.VkUserId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления пользователей из VK");
+            }
+        }
+
+        // ==================== ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ ====================
+
+        public async Task<List<User>> GetOnlineUsersAsync()
+        {
+            var users = new List<User>();
+
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"SELECT * FROM Users WHERE IsOnline = 1 ORDER BY LastActivity DESC";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                using var reader = await cmd.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    var user = MapUserFromReader(reader);
+                    users.Add(user);
+                }
+
+                // Обновляем статусы из VK
+                if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    await UpdateUsersWithVkInfo(users);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения онлайн пользователей");
+            }
+
+            return users;
+        }
+
+        public async Task<List<User>> GetBannedUsersAsync()
+        {
+            var users = new List<User>();
+
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"SELECT * FROM Users WHERE IsBanned = 1 ORDER BY LastActivity DESC";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                using var reader = await cmd.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    var user = MapUserFromReader(reader);
+                    users.Add(user);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения забаненных пользователей");
+            }
+
+            return users;
+        }
+
+        public async Task<List<User>> GetActiveUsersAsync(int days = 7)
+        {
+            var users = new List<User>();
+
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT * FROM Users 
+                    WHERE IsActive = 1 
+                    AND IsBanned = 0 
+                    AND LastActivity >= datetime('now', @DaysAgo)
+                    ORDER BY LastActivity DESC";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@DaysAgo", $"-{days} days");
+
+                using var reader = await cmd.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    var user = MapUserFromReader(reader);
+                    users.Add(user);
+                }
+
+                // Обновляем статусы из VK
+                if (_enableRealVkIntegration && _vkApiService.IsEnabled)
+                {
+                    await UpdateUsersWithVkInfo(users);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения активных пользователей");
+            }
+
+            return users;
+        }
+
+        public async Task<UserStats> GetAdvancedStatsAsync()
+        {
+            var stats = new UserStats();
+
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Общая статистика
+                var totalSql = @"
+                    SELECT 
+                        COUNT(*) as Total,
+                        SUM(CASE WHEN IsActive = 1 THEN 1 ELSE 0 END) as Active,
+                        SUM(CASE WHEN IsOnline = 1 THEN 1 ELSE 0 END) as Online,
+                        SUM(CASE WHEN IsBanned = 1 THEN 1 ELSE 0 END) as Banned,
+                        SUM(MessageCount) as TotalMessages
+                    FROM Users";
+
+                using var totalCmd = new SqliteCommand(totalSql, connection);
+                using var totalReader = await totalCmd.ExecuteReaderAsync();
+
+                if (await totalReader.ReadAsync())
+                {
+                    stats.TotalUsers = totalReader.GetInt32(0);
+                    stats.ActiveUsers = totalReader.GetInt32(1);
+                    stats.OnlineUsers = totalReader.GetInt32(2);
+                    stats.BannedUsers = totalReader.GetInt32(3);
+                    stats.TotalMessages = totalReader.GetInt32(4);
+                }
+
+                // Новые пользователи за последние 7 дней
+                var weeklySql = @"
+                    SELECT 
+                        DATE(RegistrationDate) as RegDate,
+                        COUNT(*) as Count
+                    FROM Users 
+                    WHERE RegistrationDate >= datetime('now', '-7 days')
+                    GROUP BY DATE(RegistrationDate)
+                    ORDER BY RegDate DESC";
+
+                using var weeklyCmd = new SqliteCommand(weeklySql, connection);
+                using var weeklyReader = await weeklyCmd.ExecuteReaderAsync();
+
+                while (await weeklyReader.ReadAsync())
+                {
+                    var dailyStat = new DailyStat
+                    {
+                        Date = DateTime.Parse(weeklyReader.GetString(0)),
+                        Count = weeklyReader.GetInt32(1)
+                    };
+                    stats.DailyRegistrations.Add(dailyStat);
+                }
+
+                // Активность по часам
+                var hourlySql = @"
+                    SELECT 
+                        strftime('%H', LastActivity) as Hour,
+                        COUNT(*) as Count
+                    FROM Users 
+                    WHERE LastActivity >= datetime('now', '-1 day')
+                    GROUP BY strftime('%H', LastActivity)
+                    ORDER BY Hour";
+
+                using var hourlyCmd = new SqliteCommand(hourlySql, connection);
+                using var hourlyReader = await hourlyCmd.ExecuteReaderAsync();
+
+                while (await hourlyReader.ReadAsync())
+                {
+                    stats.HourlyActivity[int.Parse(hourlyReader.GetString(0))] = hourlyReader.GetInt32(1);
+                }
+
+                // Статистика по статусам
+                var statusSql = "SELECT Status, COUNT(*) FROM Users GROUP BY Status";
+                using var statusCmd = new SqliteCommand(statusSql, connection);
+                using var statusReader = await statusCmd.ExecuteReaderAsync();
+
+                while (await statusReader.ReadAsync())
+                {
+                    var status = statusReader.GetString(0);
+                    var count = statusReader.GetInt32(1);
+                    stats.StatusDistribution[status] = count;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения расширенной статистики");
+            }
+
+            return stats;
+        }
+
+        private User MapUserFromReader(SqliteDataReader reader)
+        {
+            return new User
+            {
+                Id = reader.GetInt32(0),
+                VkUserId = reader.GetInt64(1),
+                FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
+                IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
+                LastActivity = reader.GetDateTime(7),
+                MessageCount = reader.GetInt32(8),
+                RegistrationDate = reader.GetDateTime(9),
+                IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
+                Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
+                Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+                Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),
+                Notes = reader.IsDBNull(16) ? null : reader.GetString(16)
+            };
         }
 
         private void InitializeDatabase()
@@ -49,41 +784,69 @@ namespace AdminPanel.Services
 
                 // 1. Создаем таблицу Users если её нет
                 var createTableSql = @"
-                    CREATE TABLE IF NOT EXISTS Users (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        VkUserId INTEGER UNIQUE NOT NULL,
-                        FirstName TEXT NOT NULL,
-                        LastName TEXT NOT NULL,
-                        Username TEXT DEFAULT '',
-                        IsActive BOOLEAN DEFAULT 1,
-                        IsOnline BOOLEAN DEFAULT 0,
-                        LastActivity DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        MessageCount INTEGER DEFAULT 0,
-                        RegistrationDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        IsBanned BOOLEAN DEFAULT 0,
-                        Status TEXT DEFAULT 'user',
-                        Email TEXT DEFAULT '',
-                        Phone TEXT DEFAULT '',
-                        Location TEXT DEFAULT '',
-                        PhotoUrl TEXT DEFAULT '',
-                        Notes TEXT DEFAULT '',
-                        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )";
+            CREATE TABLE IF NOT EXISTS Users (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                VkUserId INTEGER UNIQUE NOT NULL,
+                FirstName TEXT NOT NULL,
+                LastName TEXT NOT NULL,
+                Username TEXT DEFAULT '',
+                IsActive BOOLEAN DEFAULT 1,
+                IsOnline BOOLEAN DEFAULT 0,
+                LastActivity DATETIME DEFAULT CURRENT_TIMESTAMP,
+                MessageCount INTEGER DEFAULT 0,
+                RegistrationDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                IsBanned BOOLEAN DEFAULT 0,
+                Status TEXT DEFAULT 'user',
+                Email TEXT DEFAULT '',
+                Phone TEXT DEFAULT '',
+                Location TEXT DEFAULT '',
+                PhotoUrl TEXT DEFAULT '',  -- НОВЫЙ СТОЛБЕЦ
+                Notes TEXT DEFAULT '',
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+            )";
 
                 using var createCmd = new SqliteCommand(createTableSql, connection);
                 createCmd.ExecuteNonQuery();
                 _logger.LogInformation("Таблица Users создана/проверена");
 
-                // 2. Создаем индексы
+                // 2. ДОБАВЛЯЕМ СТОЛБЦ PhotoUrl ЕСЛИ ЕГО НЕТ
+                try
+                {
+                    var addColumnSql = "ALTER TABLE Users ADD COLUMN PhotoUrl TEXT DEFAULT ''";
+                    using var addColumnCmd = new SqliteCommand(addColumnSql, connection);
+                    addColumnCmd.ExecuteNonQuery();
+                    _logger.LogInformation("Столбец PhotoUrl добавлен в таблицу Users");
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 1) // Столбец уже существует
+                {
+                    _logger.LogInformation("Столбец PhotoUrl уже существует в таблице Users");
+                }
+
+                // 3. ДОБАВЛЯЕМ СТОЛБЦ Notes ЕСЛИ ЕГО НЕТ
+                try
+                {
+                    var addNotesColumnSql = "ALTER TABLE Users ADD COLUMN Notes TEXT DEFAULT ''";
+                    using var addNotesColumnCmd = new SqliteCommand(addNotesColumnSql, connection);
+                    addNotesColumnCmd.ExecuteNonQuery();
+                    _logger.LogInformation("Столбец Notes добавлен в таблицу Users");
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 1) // Столбец уже существует
+                {
+                    _logger.LogInformation("Столбец Notes уже существует в таблице Users");
+                }
+
+                // 4. Создаем индексы
                 var indexes = new[]
                 {
-                    "CREATE INDEX IF NOT EXISTS idx_users_vkuserid ON Users(VkUserId)",
-                    "CREATE INDEX IF NOT EXISTS idx_users_active ON Users(IsActive)",
-                    "CREATE INDEX IF NOT EXISTS idx_users_online ON Users(IsOnline)",
-                    "CREATE INDEX IF NOT EXISTS idx_users_banned ON Users(IsBanned)",
-                    "CREATE INDEX IF NOT EXISTS idx_users_lastactivity ON Users(LastActivity DESC)"
-                };
+            "CREATE INDEX IF NOT EXISTS idx_users_vkuserid ON Users(VkUserId)",
+            "CREATE INDEX IF NOT EXISTS idx_users_active ON Users(IsActive)",
+            "CREATE INDEX IF NOT EXISTS idx_users_online ON Users(IsOnline)",
+            "CREATE INDEX IF NOT EXISTS idx_users_banned ON Users(IsBanned)",
+            "CREATE INDEX IF NOT EXISTS idx_users_lastactivity ON Users(LastActivity DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_users_status ON Users(Status)",
+            "CREATE INDEX IF NOT EXISTS idx_users_registrationdate ON Users(RegistrationDate DESC)"
+        };
 
                 foreach (var indexSql in indexes)
                 {
@@ -92,28 +855,38 @@ namespace AdminPanel.Services
                 }
                 _logger.LogInformation("Индексы таблицы Users созданы/проверены");
 
-                // 3. Создаем таблицу Messages для хранения переписки
+                // 5. Создаем таблицу Messages для хранения переписки
                 var createMessagesTableSql = @"
-                    CREATE TABLE IF NOT EXISTS Messages (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        VkUserId INTEGER NOT NULL,
-                        MessageText TEXT NOT NULL,
-                        IsFromUser BOOLEAN DEFAULT 1,
-                        MessageDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (VkUserId) REFERENCES Users(VkUserId) ON DELETE CASCADE
-                    )";
+            CREATE TABLE IF NOT EXISTS Messages (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                VkUserId INTEGER NOT NULL,
+                MessageText TEXT NOT NULL,
+                IsFromUser BOOLEAN DEFAULT 1,
+                MessageDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (VkUserId) REFERENCES Users(VkUserId) ON DELETE CASCADE
+            )";
 
                 using var messagesCmd = new SqliteCommand(createMessagesTableSql, connection);
                 messagesCmd.ExecuteNonQuery();
                 _logger.LogInformation("Таблица Messages создана/проверена");
 
                 // Индекс для быстрого поиска сообщений по пользователю
-                var messagesIndexSql = "CREATE INDEX IF NOT EXISTS idx_messages_vkuserid ON Messages(VkUserId)";
-                using var messagesIndexCmd = new SqliteCommand(messagesIndexSql, connection);
-                messagesIndexCmd.ExecuteNonQuery();
+                var messagesIndexes = new[]
+                {
+            "CREATE INDEX IF NOT EXISTS idx_messages_vkuserid ON Messages(VkUserId)",
+            "CREATE INDEX IF NOT EXISTS idx_messages_date ON Messages(MessageDate DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_messages_fromuser ON Messages(IsFromUser)"
+        };
 
-                // 4. Добавляем тестовых пользователей если таблица пуста
+                foreach (var indexSql in messagesIndexes)
+                {
+                    using var messagesIndexCmd = new SqliteCommand(indexSql, connection);
+                    messagesIndexCmd.ExecuteNonQuery();
+                }
+                _logger.LogInformation("Индексы таблицы Messages созданы/проверены");
+
+                // 6. Добавляем тестовых пользователей если таблица пуста
                 var countCmd = new SqliteCommand("SELECT COUNT(*) FROM Users", connection);
                 var count = Convert.ToInt32(countCmd.ExecuteScalar());
 
@@ -123,21 +896,21 @@ namespace AdminPanel.Services
 
                     var testUsers = new[]
                     {
-                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
-                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
-                          VALUES (123456789, 'Иван', 'Иванов', 'ivan_ivanov', 1, 1, 
-                          CURRENT_TIMESTAMP, 15, DATETIME('now', '-10 days'), 0, 'user', 'ivan@example.com', '+7 999 123-45-67', 'Москва')",
+                @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                  LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location, PhotoUrl)
+                  VALUES (123456789, 'Иван', 'Иванов', 'ivan_ivanov', 1, 1, 
+                  CURRENT_TIMESTAMP, 15, DATETIME('now', '-10 days'), 0, 'user', 'ivan@example.com', '+7 999 123-45-67', 'Москва', '')",
 
-                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
-                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
-                          VALUES (987654321, 'Мария', 'Петрова', 'maria_petrova', 1, 0, 
-                          DATETIME('now', '-2 hours'), 8, DATETIME('now', '-5 days'), 0, 'vip', 'maria@example.com', '+7 999 987-65-43', 'Санкт-Петербург')",
+                @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                  LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location, PhotoUrl)
+                  VALUES (987654321, 'Мария', 'Петрова', 'maria_petrova', 1, 0, 
+                  DATETIME('now', '-2 hours'), 8, DATETIME('now', '-5 days'), 0, 'vip', 'maria@example.com', '+7 999 987-65-43', 'Санкт-Петербург', '')",
 
-                        @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
-                          LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location)
-                          VALUES (555555555, 'Алексей', 'Сидоров', 'alex_sidorov', 1, 1, 
-                          CURRENT_TIMESTAMP, 23, DATETIME('now', '-15 days'), 0, 'user', 'alex@example.com', '+7 999 555-55-55', 'Екатеринбург')"
-                    };
+                @"INSERT INTO Users (VkUserId, FirstName, LastName, Username, IsActive, IsOnline, 
+                  LastActivity, MessageCount, RegistrationDate, IsBanned, Status, Email, Phone, Location, PhotoUrl)
+                  VALUES (555555555, 'Алексей', 'Сидоров', 'alex_sidorov', 1, 1, 
+                  CURRENT_TIMESTAMP, 23, DATETIME('now', '-15 days'), 0, 'user', 'alex@example.com', '+7 999 555-55-55', 'Екатеринбург', '')"
+            };
 
                     foreach (var sql in testUsers)
                     {
@@ -153,6 +926,9 @@ namespace AdminPanel.Services
                 else
                 {
                     _logger.LogInformation("В таблице Users уже есть {Count} пользователей", count);
+
+                    // Проверяем структуру таблицы
+                    CheckTableStructure(connection);
                 }
 
                 _logger.LogInformation("Инициализация таблицы Users завершена успешно");
@@ -161,6 +937,37 @@ namespace AdminPanel.Services
             {
                 _logger.LogError(ex, "КРИТИЧЕСКАЯ ОШИБКА при инициализации таблицы Users");
                 throw;
+            }
+        }
+
+        private void CheckTableStructure(SqliteConnection connection)
+        {
+            try
+            {
+                var columns = new List<string>();
+                var command = new SqliteCommand("PRAGMA table_info(Users);", connection);
+
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    columns.Add(reader.GetString(1)); // column name
+                }
+
+                _logger.LogInformation("Структура таблицы Users: {Columns}", string.Join(", ", columns));
+
+                // Проверяем наличие необходимых столбцов
+                var requiredColumns = new[] { "PhotoUrl", "Notes", "Email", "Phone", "Location" };
+                foreach (var column in requiredColumns)
+                {
+                    if (!columns.Contains(column))
+                    {
+                        _logger.LogWarning("В таблице Users отсутствует столбец: {Column}", column);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при проверке структуры таблицы Users");
             }
         }
 
@@ -204,145 +1011,6 @@ namespace AdminPanel.Services
             }
         }
 
-        // ==================== ОСНОВНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ====================
-
-        public async Task<UserListResponse> GetUsersAsync(
-            int page = 1,
-            int pageSize = 20,
-            string search = "",
-            string status = "all",
-            string sortBy = "newest")
-        {
-            _logger.LogInformation("Получение пользователей: страница {Page}, поиск: '{Search}'", page, search);
-
-            var response = new UserListResponse
-            {
-                Page = page,
-                PageSize = pageSize,
-                Users = new List<User>()
-            };
-
-            try
-            {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
-
-                // Базовые условия WHERE
-                var conditions = new List<string>();
-                var parameters = new Dictionary<string, object>();
-
-                if (!string.IsNullOrEmpty(search))
-                {
-                    conditions.Add(@"
-                        (LOWER(FirstName) LIKE @Search OR 
-                         LOWER(LastName) LIKE @Search OR 
-                         LOWER(Username) LIKE @Search OR 
-                         CAST(VkUserId AS TEXT) LIKE @Search)");
-                    parameters["@Search"] = $"%{search.ToLower()}%";
-                }
-
-                if (status != "all")
-                {
-                    switch (status)
-                    {
-                        case "active":
-                            conditions.Add("IsActive = 1 AND IsBanned = 0");
-                            break;
-                        case "inactive":
-                            conditions.Add("IsActive = 0 AND IsBanned = 0");
-                            break;
-                        case "banned":
-                            conditions.Add("IsBanned = 1");
-                            break;
-                        case "online":
-                            conditions.Add("IsOnline = 1");
-                            break;
-                    }
-                }
-
-                var whereClause = conditions.Any()
-                    ? "WHERE " + string.Join(" AND ", conditions)
-                    : "";
-
-                // Получаем общее количество
-                var countSql = $"SELECT COUNT(*) FROM Users {whereClause}";
-                using var countCmd = new SqliteCommand(countSql, connection);
-
-                foreach (var param in parameters)
-                {
-                    countCmd.Parameters.AddWithValue(param.Key, param.Value);
-                }
-
-                response.TotalCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
-                response.TotalPages = (int)Math.Ceiling(response.TotalCount / (double)pageSize);
-
-                // Получаем статистику
-                await GetUserStatsAsync(connection, response);
-
-                // Сортировка
-                string orderBy = sortBy switch
-                {
-                    "oldest" => "RegistrationDate ASC",
-                    "name" => "FirstName ASC, LastName ASC",
-                    "activity" => "LastActivity DESC",
-                    _ => "RegistrationDate DESC" // newest
-                };
-
-                // Получаем пользователей с пагинацией
-                var sql = $@"
-                    SELECT 
-                        Id, VkUserId, FirstName, LastName, Username,
-                        IsActive, IsOnline, LastActivity, MessageCount,
-                        RegistrationDate, IsBanned, Status, Email, Phone, Location
-                    FROM Users 
-                    {whereClause}
-                    ORDER BY {orderBy}
-                    LIMIT @PageSize OFFSET @Offset";
-
-                using var cmd = new SqliteCommand(sql, connection);
-                cmd.Parameters.AddWithValue("@PageSize", pageSize);
-                cmd.Parameters.AddWithValue("@Offset", (page - 1) * pageSize);
-
-                foreach (var param in parameters)
-                {
-                    cmd.Parameters.AddWithValue(param.Key, param.Value);
-                }
-
-                using var reader = await cmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    var user = new User
-                    {
-                        Id = reader.GetInt32(0),
-                        VkUserId = reader.GetInt64(1),
-                        FirstName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                        LastName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                        Username = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
-                        IsActive = !reader.IsDBNull(5) && reader.GetBoolean(5),
-                        IsOnline = !reader.IsDBNull(6) && reader.GetBoolean(6),
-                        LastActivity = reader.GetDateTime(7),
-                        MessageCount = reader.GetInt32(8),
-                        RegistrationDate = reader.GetDateTime(9),
-                        IsBanned = !reader.IsDBNull(10) && reader.GetBoolean(10),
-                        Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
-                        Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
-                        Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
-                    };
-
-                    response.Users.Add(user);
-                }
-
-                _logger.LogInformation("Загружено {Count} пользователей из {Total}", response.Users.Count, response.TotalCount);
-                return response;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователей");
-                throw;
-            }
-        }
-
         private async Task GetUserStatsAsync(SqliteConnection connection, UserListResponse response)
         {
             try
@@ -378,12 +1046,13 @@ namespace AdminPanel.Services
                 await connection.OpenAsync();
 
                 var sql = @"
-                    SELECT 
-                        Id, VkUserId, FirstName, LastName, Username,
-                        IsActive, IsOnline, LastActivity, MessageCount,
-                        RegistrationDate, IsBanned, Status, Email, Phone, Location
-                    FROM Users 
-                    WHERE VkUserId = @VkUserId";
+            SELECT 
+                Id, VkUserId, FirstName, LastName, Username,
+                IsActive, IsOnline, LastActivity, MessageCount,
+                RegistrationDate, IsBanned, Status, Email, Phone, Location,
+                PhotoUrl, Notes  -- ДОБАВЛЕН PhotoUrl и Notes
+            FROM Users 
+            WHERE VkUserId = @VkUserId";
 
                 using var cmd = new SqliteCommand(sql, connection);
                 cmd.Parameters.AddWithValue("@VkUserId", vkUserId);
@@ -407,7 +1076,9 @@ namespace AdminPanel.Services
                         Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
                         Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
                         Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),  // PhotoUrl
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)      // Notes
                     };
                 }
 
@@ -428,12 +1099,13 @@ namespace AdminPanel.Services
                 await connection.OpenAsync();
 
                 var sql = @"
-                    SELECT 
-                        Id, VkUserId, FirstName, LastName, Username,
-                        IsActive, IsOnline, LastActivity, MessageCount,
-                        RegistrationDate, IsBanned, Status, Email, Phone, Location
-                    FROM Users 
-                    WHERE Id = @Id";
+            SELECT 
+                Id, VkUserId, FirstName, LastName, Username,
+                IsActive, IsOnline, LastActivity, MessageCount,
+                RegistrationDate, IsBanned, Status, Email, Phone, Location,
+                PhotoUrl, Notes  -- ДОБАВЛЕН PhotoUrl и Notes
+            FROM Users 
+            WHERE Id = @Id";
 
                 using var cmd = new SqliteCommand(sql, connection);
                 cmd.Parameters.AddWithValue("@Id", id);
@@ -457,7 +1129,9 @@ namespace AdminPanel.Services
                         Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
                         Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
                         Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),  // PhotoUrl
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)      // Notes
                     };
                 }
 
@@ -492,11 +1166,13 @@ namespace AdminPanel.Services
                 INSERT INTO Users (
                     VkUserId, FirstName, LastName, Username,
                     IsActive, IsOnline, LastActivity, MessageCount,
-                    RegistrationDate, IsBanned, Status, Email, Phone, Location
+                    RegistrationDate, IsBanned, Status, Email, Phone, Location,
+                    PhotoUrl, Notes  -- ДОБАВЛЕНЫ
                 ) VALUES (
                     @VkUserId, @FirstName, @LastName, @Username,
                     @IsActive, @IsOnline, @LastActivity, @MessageCount,
-                    @RegistrationDate, @IsBanned, @Status, @Email, @Phone, @Location
+                    @RegistrationDate, @IsBanned, @Status, @Email, @Phone, @Location,
+                    @PhotoUrl, @Notes  -- ДОБАВЛЕНЫ
                 );
                 SELECT last_insert_rowid();";
 
@@ -528,6 +1204,8 @@ namespace AdminPanel.Services
                     Email = @Email,
                     Phone = @Phone,
                     Location = @Location,
+                    PhotoUrl = @PhotoUrl,  -- ДОБАВЛЕНО
+                    Notes = @Notes,        -- ДОБАВЛЕНО
                     UpdatedAt = CURRENT_TIMESTAMP
                 WHERE VkUserId = @VkUserId";
 
@@ -565,6 +1243,8 @@ namespace AdminPanel.Services
             cmd.Parameters.AddWithValue("@Email", user.Email ?? string.Empty);
             cmd.Parameters.AddWithValue("@Phone", user.Phone ?? string.Empty);
             cmd.Parameters.AddWithValue("@Location", user.Location ?? string.Empty);
+            cmd.Parameters.AddWithValue("@PhotoUrl", user.PhotoUrl ?? string.Empty);  // ДОБАВЛЕНО
+            cmd.Parameters.AddWithValue("@Notes", user.Notes ?? string.Empty);        // ДОБАВЛЕНО
         }
 
         public async Task<bool> UpdateUserStatusAsync(int id, bool isActive, bool isBanned = false)
@@ -597,6 +1277,63 @@ namespace AdminPanel.Services
             {
                 _logger.LogError(ex, "Ошибка при обновлении статуса пользователя ID {Id}", id);
                 throw;
+            }
+        }
+
+        public async Task FixDatabaseSchema()
+        {
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                _logger.LogInformation("Проверка и исправление структуры базы данных...");
+
+                // Получаем информацию о столбцах таблицы Users
+                var columns = new List<string>();
+                var command = new SqliteCommand("PRAGMA table_info(Users);", connection);
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    columns.Add(reader.GetString(1)); // column name
+                }
+
+                _logger.LogInformation("Текущие столбцы таблицы Users: {Columns}", string.Join(", ", columns));
+
+                // Добавляем отсутствующие столбцы
+                var columnsToAdd = new Dictionary<string, string>
+        {
+            { "PhotoUrl", "TEXT DEFAULT ''" },
+            { "Notes", "TEXT DEFAULT ''" },
+            { "Email", "TEXT DEFAULT ''" },
+            { "Phone", "TEXT DEFAULT ''" },
+            { "Location", "TEXT DEFAULT ''" }
+        };
+
+                foreach (var column in columnsToAdd)
+                {
+                    if (!columns.Contains(column.Key))
+                    {
+                        try
+                        {
+                            var sql = $"ALTER TABLE Users ADD COLUMN {column.Key} {column.Value}";
+                            using var alterCmd = new SqliteCommand(sql, connection);
+                            await alterCmd.ExecuteNonQueryAsync();
+                            _logger.LogInformation("Добавлен столбец {Column} в таблицу Users", column.Key);
+                        }
+                        catch (SqliteException ex) when (ex.SqliteErrorCode == 1)
+                        {
+                            _logger.LogInformation("Столбец {Column} уже существует", column.Key);
+                        }
+                    }
+                }
+
+                _logger.LogInformation("Структура базы данных проверена и исправлена");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при исправлении структуры базы данных");
             }
         }
 
@@ -708,11 +1445,15 @@ namespace AdminPanel.Services
                     SELECT 
                         Id, VkUserId, FirstName, LastName, Username,
                         IsActive, IsOnline, LastActivity, MessageCount,
-                        RegistrationDate, IsBanned, Status, Email, Phone, Location
+                        RegistrationDate, IsBanned, Status, Email, Phone, Location,
+                        PhotoUrl, Notes
                     FROM Users 
                     WHERE LOWER(FirstName) LIKE @Query OR 
                           LOWER(LastName) LIKE @Query OR 
                           LOWER(Username) LIKE @Query OR 
+                          LOWER(Email) LIKE @Query OR
+                          LOWER(Phone) LIKE @Query OR
+                          LOWER(Location) LIKE @Query OR
                           CAST(VkUserId AS TEXT) LIKE @Query
                     ORDER BY LastActivity DESC
                     LIMIT 50";
@@ -739,7 +1480,9 @@ namespace AdminPanel.Services
                         Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
                         Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
                         Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)
                     };
 
                     users.Add(user);
@@ -854,7 +1597,8 @@ namespace AdminPanel.Services
             SELECT DISTINCT
                 u.Id, u.VkUserId, u.FirstName, u.LastName, u.Username,
                 u.IsActive, u.IsOnline, u.LastActivity, u.MessageCount,
-                u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location
+                u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location,
+                u.PhotoUrl, u.Notes
             FROM Users u
             INNER JOIN Messages m ON u.VkUserId = m.VkUserId
             WHERE m.MessageDate >= datetime('now', @DaysAgo)
@@ -882,7 +1626,9 @@ namespace AdminPanel.Services
                         Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
                         Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
                         Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)
                     };
 
                     // Получаем сообщения этого пользователя
@@ -1103,7 +1849,8 @@ namespace AdminPanel.Services
                     SELECT DISTINCT
                         u.Id, u.VkUserId, u.FirstName, u.LastName, u.Username,
                         u.IsActive, u.IsOnline, u.LastActivity, u.MessageCount,
-                        u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location
+                        u.RegistrationDate, u.IsBanned, u.Status, u.Email, u.Phone, u.Location,
+                        u.PhotoUrl, u.Notes
                     FROM Users u
                     INNER JOIN Messages m ON u.VkUserId = m.VkUserId
                     WHERE DATE(m.MessageDate) = DATE('now')
@@ -1130,7 +1877,9 @@ namespace AdminPanel.Services
                         Status = reader.IsDBNull(11) ? "user" : reader.GetString(11),
                         Email = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
                         Phone = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
-                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14)
+                        Location = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+                        PhotoUrl = reader.IsDBNull(15) ? null : reader.GetString(15),
+                        Notes = reader.IsDBNull(16) ? null : reader.GetString(16)
                     };
 
                     users.Add(user);
@@ -1297,5 +2046,24 @@ namespace AdminPanel.Services
         public int TotalMessages { get; set; }
         public int UserMessages { get; set; }
         public int BotMessages { get; set; }
+    }
+
+    public class UserStats
+    {
+        public int TotalUsers { get; set; }
+        public int ActiveUsers { get; set; }
+        public int OnlineUsers { get; set; }
+        public int BannedUsers { get; set; }
+        public int TotalMessages { get; set; }
+        public List<DailyStat> DailyRegistrations { get; set; } = new();
+        public Dictionary<int, int> HourlyActivity { get; set; } = new();
+        public Dictionary<string, int> StatusDistribution { get; set; } = new();
+        public DateTime GeneratedAt { get; set; } = DateTime.Now;
+    }
+
+    public class DailyStat
+    {
+        public DateTime Date { get; set; }
+        public int Count { get; set; }
     }
 }

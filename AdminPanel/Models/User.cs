@@ -23,6 +23,23 @@
         // Вычисляемые свойства
         public string FullName => $"{FirstName} {LastName}".Trim();
         public string DisplayName => !string.IsNullOrEmpty(Username) ? $"@{Username}" : FullName;
+
+        // Новые свойства для отображения
+        public string? VkProfileUrl => !string.IsNullOrEmpty(Username)
+            ? $"https://vk.com/{Username}"
+            : $"https://vk.com/id{VkUserId}";
+
+        public bool IsAdmin => Status == "admin" || Status == "moderator";
+        public bool IsVip => Status == "vip";
+
+        public string StatusColor => Status switch
+        {
+            "admin" => "danger",
+            "moderator" => "warning",
+            "vip" => "info",
+            "user" => "primary",
+            _ => "secondary"
+        };
     }
 
     public class Message
@@ -47,5 +64,8 @@
                 ? RecentMessages.First().MessageText.Substring(0, 50) + "..."
                 : RecentMessages.First().MessageText)
             : "Нет сообщений";
+
+        public int UnreadMessages { get; set; }
+        public bool HasUnreadMessages => UnreadMessages > 0;
     }
 }
