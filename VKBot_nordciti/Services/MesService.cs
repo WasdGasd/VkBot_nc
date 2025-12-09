@@ -14,6 +14,8 @@ namespace VKBot_nordciti.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IUserSyncService _userSyncService;
         private readonly IVkUserService _vkUserService;
+        private readonly IBotStatsService _statsService;
+
 
         private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -25,7 +27,8 @@ namespace VKBot_nordciti.Services
             ICommandService commandService,
             IHttpClientFactory httpClientFactory,
             IUserSyncService userSyncService,
-            IVkUserService vkUserService)
+            IVkUserService vkUserService,
+            IBotStatsService statsService)
         {
             _vk = vkApi;
             _kb = kb;
@@ -35,6 +38,7 @@ namespace VKBot_nordciti.Services
             _httpClientFactory = httpClientFactory;
             _userSyncService = userSyncService;
             _vkUserService = vkUserService;
+            _statsService = statsService;
         }
 
         public async Task ProcessMessageAsync(VkMessage message)
@@ -54,6 +58,18 @@ namespace VKBot_nordciti.Services
                     var userInfo = await _vkUserService.GetUserInfoAsync(userId);
                     if (userInfo != null)
                     {
+                        // 🔥 ДОБАВИЛИ ДЛЯ СТАТИСТИКИ:
+                        // Регистрируем сообщение пользователя для статистики
+                        _statsService?.RegisterUserMessage(userId, text);
+                        _statsService?.UpdateUserActivity(userId, true);
+
+                        // Если это команда - регистрируем использование
+                        if (text.StartsWith("/"))
+                        {
+                            _statsService?.RegisterCommandUsage(userId, text);
+                        }
+
+
                         // 🔥 Отдельный try-catch для каждой операции синхронизации
                         try
                         {
