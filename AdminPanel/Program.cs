@@ -73,7 +73,6 @@ builder.Services.AddHttpClient("BotApi", client =>
     client.DefaultRequestHeaders.Add("User-Agent", "AdminPanel/1.0");
     client.DefaultRequestHeaders.Add("X-Admin-Panel", "true");
 });
-
 // Собственные сервисы
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<BotStatusService>();
