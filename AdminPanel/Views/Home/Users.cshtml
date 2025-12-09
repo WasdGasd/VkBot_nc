@@ -1,4 +1,4 @@
-﻿﻿
+﻿
 <div class="container-fluid">
     <div class="row">
         <div class="col-12">
@@ -81,7 +81,7 @@
                         </ul>
                     </div>
                 </div>
-
+                
                 <div class="card-body">
                     <!-- Индикатор загрузки -->
                     <div id="loadingIndicator" class="text-center py-5" style="display: none;">
@@ -177,9 +177,9 @@
         function formatDate(dateString) {
             if (!dateString) return '-';
             const date = new Date(dateString);
-            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit'
+            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
             });
         }
 
@@ -198,7 +198,6 @@
         }
 
         // Основная функция загрузки пользователей
-                // В Users.cshtml обновите функцию loadUsers:
         async function loadUsers(page = 1) {
             try {
                 // Показываем индикатор загрузки
@@ -207,30 +206,7 @@
                 hideElement('paginationContainer');
                 showElement('loadingIndicator');
 
-                // Используем упрощенный endpoint для получения реальных данных
-                const response = await fetch(`/api/v1/users/simple?page=${page}`);
-                if (!response.ok) {
-                    throw new Error(`Ошибка HTTP: ${response.status}`);
-                }
-
-                const result = await response.json();
-
-                if (result.success) {
-                    displayUsersSimple(result.data);
-                } else {
-                    // Если не удалось получить реальные данные, пробуем обычный endpoint
-                    await loadUsersFallback(page);
-                }
-            } catch (error) {
-                console.error('Ошибка загрузки пользователей:', error);
-                await loadUsersFallback(page);
-            } finally {
-                hideElement('loadingIndicator');
-            }
-        }
-
-        async function loadUsersFallback(page = 1) {
-            try {
+                // Формируем URL
                 const params = new URLSearchParams({
                     page: page,
                     pageSize: pageSize,
@@ -239,68 +215,76 @@
                     sort: 'newest'
                 });
 
+                // Делаем запрос
                 const response = await fetch(`/api/v1/users?${params}`);
                 if (!response.ok) {
                     throw new Error(`Ошибка HTTP: ${response.status}`);
                 }
 
                 const result = await response.json();
-
+                
                 if (result.success) {
-                    displayUsersReal(result.data);
+                    displayUsers(result.data);
                     updateStats(result.data);
                 } else {
                     showError('Ошибка загрузки данных');
                 }
             } catch (error) {
-                console.error('Ошибка загрузки пользователей (fallback):', error);
+                console.error('Ошибка загрузки пользователей:', error);
                 showError('Не удалось загрузить пользователей: ' + error.message);
+            } finally {
+                hideElement('loadingIndicator');
             }
         }
 
-        function displayUsersSimple(data) {
-            const users = data.Users || [];
+        // Отображение пользователей в таблице
+        function displayUsers(data) {
+            const users = data.users;
             const tbody = document.getElementById('usersTableBody');
-
+            
+            // Очищаем таблицу
             tbody.innerHTML = '';
 
             if (!users || users.length === 0) {
+                // Показываем сообщение об отсутствии данных
                 hideElement('usersTable');
                 hideElement('paginationContainer');
                 showElement('noDataMessage');
                 return;
             }
 
+            // Заполняем таблицу
             users.forEach(user => {
                 const row = document.createElement('tr');
-
+                
                 row.innerHTML = `
-                    <td><strong>${user.id || user.Id}</strong></td>
+                    <td><strong>${user.id}</strong></td>
                     <td>
                         <div class="d-flex align-items-center">
-                            <div class="avatar me-3 bg-primary rounded-circle d-flex align-items-center justify-content-center"
+                            <div class="avatar me-3 bg-primary rounded-circle d-flex align-items-center justify-content-center" 
                                  style="width: 40px; height: 40px;">
                                 <span class="text-white fw-bold">
-                                    ${(user.firstName || user.FirstName || '?').charAt(0)}${(user.lastName || user.LastName || '').charAt(0)}
+                                    ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
                                 </span>
                             </div>
                             <div>
-                                <div class="fw-bold">${user.firstName || user.FirstName || 'Неизвестно'} ${user.lastName || user.LastName || ''}</div>
+                                <div class="fw-bold">${user.firstName} ${user.lastName}</div>
                                 <div class="text-muted small">
-                                    ${user.username || user.Username || 'без username'}
+                                     ${user.username || 'без username'}
+                                    ${user.email ? `• ${user.email}` : ''}
                                 </div>
                             </div>
                         </div>
                     </td>
                     <td>
-                        <code class="bg-light p-1 rounded">${user.vkUserId || user.VkUserId || 'N/A'}</code>
+                        <code class="bg-light p-1 rounded">${user.vkUserId}</code>
                     </td>
                     <td>
-                        ${getStatusBadgeReal(user)}
-                        <div class="small text-muted mt-1">${user.status || user.Status || 'user'}</div>
+                        ${getStatusBadge(user)}
+                        <div class="small text-muted mt-1">${user.status}</div>
                     </td>
                     <td>
-                        <span class="badge bg-info rounded-pill">${user.messageCount || user.MessageCount || 0}</span>
+                        <span class="badge bg-info rounded-pill">${user.messageCount}</span>
                     </td>
                     <td>
                         <div class="small">${formatDate(user.registrationDate)}</div>
@@ -310,140 +294,37 @@
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-outline-primary" onclick="viewUser(${user.id || user.Id})" title="Просмотр">
+                            <button class="btn btn-outline-primary" onclick="viewUser(${user.id})" title="Просмотр">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            <button class="btn btn-outline-warning" onclick="editUser(${user.id || user.Id})" title="Редактировать">
+                            <button class="btn btn-outline-warning" onclick="editUser(${user.id})" title="Редактировать">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deleteUser(${user.id || user.Id})" title="Удалить">
+                            <button class="btn btn-outline-danger" onclick="deleteUser(${user.id})" title="Удалить">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
                     </td>
                 `;
-
+                
                 tbody.appendChild(row);
             });
 
+            // Показываем таблицу и пагинацию
             showElement('usersTable');
             showElement('paginationContainer');
-
-            // Обновляем статистику
-            updateStatsSimple(data);
-        }
-
-        function updateStatsSimple(data) {
-            setElementText('totalUsers', data.TotalCount || 0);
-            setElementText('activeUsers', data.ActiveCount || 0);
-            setElementText('onlineUsers', data.OnlineCount || 0);
-            setElementText('newToday', data.NewTodayCount || 0);
-        }
-
-        // Функция для отображения реальных пользователей
-        function displayUsersReal(data) {
-            const users = data.Users || data.users || [];
-            const tbody = document.getElementById('usersTableBody');
-
-            tbody.innerHTML = '';
-
-            if (!users || users.length === 0) {
-                hideElement('usersTable');
-                hideElement('paginationContainer');
-                showElement('noDataMessage');
-                return;
-            }
-
-            users.forEach(user => {
-                const row = document.createElement('tr');
-
-                // Форматируем даты
-                const regDate = user.registrationDate || user.RegistrationDate;
-                const lastAct = user.lastActivity || user.LastActivity;
-
-                row.innerHTML = `
-                    <td><strong>${user.id || user.Id}</strong></td>
-                    <td>
-                        <div class="d-flex align-items-center">
-                            <div class="avatar me-3 bg-primary rounded-circle d-flex align-items-center justify-content-center"
-                                 style="width: 40px; height: 40px;">
-                                <span class="text-white fw-bold">
-                                    ${(user.firstName || user.FirstName || '?').charAt(0)}${(user.lastName || user.LastName || '').charAt(0)}
-                                </span>
-                            </div>
-                            <div>
-                                <div class="fw-bold">${user.firstName || user.FirstName || 'Неизвестно'} ${user.lastName || user.LastName || ''}</div>
-                                <div class="text-muted small">
-                                    ${user.username || user.Username || user.DisplayName || 'без username'}
-                                    ${(user.email || user.Email) ? `• ${user.email || user.Email}` : ''}
-                                </div>
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <code class="bg-light p-1 rounded">${user.vkUserId || user.VkUserId || 'N/A'}</code>
-                    </td>
-                    <td>
-                        ${getStatusBadgeReal(user)}
-                        <div class="small text-muted mt-1">${user.status || user.Status || 'user'}</div>
-                    </td>
-                    <td>
-                        <span class="badge bg-info rounded-pill">${user.messageCount || user.MessageCount || 0}</span>
-                    </td>
-                    <td>
-                        <div class="small">${formatDate(regDate)}</div>
-                    </td>
-                    <td>
-                        <div class="small">${formatDate(lastAct)}</div>
-                    </td>
-                    <td>
-                        <div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-outline-primary" onclick="viewUser(${user.id || user.Id})" title="Просмотр">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <button class="btn btn-outline-warning" onclick="editUser(${user.id || user.Id})" title="Редактировать">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="btn btn-outline-danger" onclick="deleteUser(${user.id || user.Id})" title="Удалить">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                `;
-
-                tbody.appendChild(row);
-            });
-
-            showElement('usersTable');
-            showElement('paginationContainer');
-
-            updatePagination(data.page || 1, data.totalPages || 1);
-
+            
+            // Обновляем пагинацию
+            updatePagination(data.page, data.totalPages);
+            
+            // Обновляем счетчики
             setElementText('currentCount', users.length);
-            setElementText('totalCount', data.totalCount || users.length);
-        }
-
-        // Обновленная функция для статуса
-        function getStatusBadgeReal(user) {
-            const isBanned = user.isBanned || user.IsBanned || false;
-            const isActive = user.isActive !== undefined ? user.isActive : user.IsActive !== undefined ? user.IsActive : true;
-            const isOnline = user.isOnline || user.IsOnline || false;
-
-            if (isBanned) {
-                return '<span class="badge bg-danger">Забанен</span>';
-            }
-            if (!isActive) {
-                return '<span class="badge bg-secondary">Неактивен</span>';
-            }
-            if (isOnline) {
-                return '<span class="badge bg-success">Онлайн</span>';
-            }
-            return '<span class="badge bg-primary">Активен</span>';
+            setElementText('totalCount', data.totalCount);
         }
 
         // Обновление статистики
         function updateStats(data) {
-            setElementText('totalUsers', data.totalCount || 0);
+            setElementText('totalUsers', data.totalCount);
             setElementText('activeUsers', data.activeCount || 0);
             setElementText('onlineUsers', data.onlineCount || 0);
             setElementText('newToday', data.newTodayCount || 0);
@@ -520,105 +401,89 @@
             try {
                 const response = await fetch(`/api/v1/users/${userId}`);
                 if (!response.ok) throw new Error('Пользователь не найден');
-
+                
                 const result = await response.json();
-
+                
                 if (result.success) {
-                    const user = result.data.user || result.data.User || result.data;
+                    const user = result.data.user;
                     const content = document.getElementById('userDetailsContent');
-
-                    // Определяем поля пользователя
-                    const firstName = user.firstName || user.FirstName || 'Неизвестно';
-                    const lastName = user.lastName || user.LastName || '';
-                    const username = user.username || user.Username || user.DisplayName || 'без username';
-                    const email = user.email || user.Email;
-                    const phone = user.phone || user.Phone;
-                    const location = user.location || user.Location;
-                    const vkUserId = user.vkUserId || user.VkUserId;
-                    const messageCount = user.messageCount || user.MessageCount || 0;
-                    const status = user.status || user.Status || 'user';
-                    const isBanned = user.isBanned || user.IsBanned || false;
-                    const isActive = user.isActive !== undefined ? user.isActive : user.IsActive !== undefined ? user.IsActive : true;
-                    const isOnline = user.isOnline || user.IsOnline || false;
-                    const registrationDate = user.registrationDate || user.RegistrationDate;
-                    const lastActivity = user.lastActivity || user.LastActivity;
-
+                    
                     content.innerHTML = `
                         <div class="row">
                             <div class="col-md-4 text-center mb-4">
-                                <div class="avatar-lg bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3"
+                                <div class="avatar-lg bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" 
                                      style="width: 100px; height: 100px;">
                                     <span class="text-white fs-2 fw-bold">
-                                        ${firstName.charAt(0)}${lastName.charAt(0)}
+                                        ${user.firstName.charAt(0)}${user.lastName.charAt(0)}
                                     </span>
                                 </div>
-                                <h4>${firstName} ${lastName}</h4>
-                                <p class="text-muted">${username}</p>
+                                <h4>${user.firstName} ${user.lastName}</h4>
+                                <p class="text-muted">${user.username || 'без username'}</p>
                                 <div class="mt-3">
-                                    ${getStatusBadgeReal(user)}
+                                    ${getStatusBadge(user)}
                                 </div>
                             </div>
-
+                            
                             <div class="col-md-8">
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">ID:</label>
-                                        <div class="fw-bold">${userId}</div>
+                                        <div class="fw-bold">${user.id}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">VK ID:</label>
-                                        <div><code>${vkUserId || 'N/A'}</code></div>
+                                        <div><code>${user.vkUserId}</code></div>
                                     </div>
-
+                                    
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Email:</label>
-                                        <div>${email || '<span class="text-muted">Не указан</span>'}</div>
+                                        <div>${user.email || '<span class="text-muted">Не указан</span>'}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Телефон:</label>
-                                        <div>${phone || '<span class="text-muted">Не указан</span>'}</div>
+                                        <div>${user.phone || '<span class="text-muted">Не указан</span>'}</div>
                                     </div>
-
+                                    
                                     <div class="col-md-12 mb-3">
                                         <label class="form-label text-muted">Местоположение:</label>
-                                        <div>${location || '<span class="text-muted">Не указано</span>'}</div>
+                                        <div>${user.location || '<span class="text-muted">Не указано</span>'}</div>
                                     </div>
-
+                                    
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Сообщений:</label>
-                                        <div><span class="badge bg-info">${messageCount}</span></div>
+                                        <div><span class="badge bg-info">${user.messageCount}</span></div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Дата регистрации:</label>
-                                        <div>${formatDate(registrationDate)}</div>
+                                        <div>${formatDate(user.registrationDate)}</div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label text-muted">Последняя активность:</label>
-                                        <div>${formatDate(lastActivity)}</div>
+                                        <div>${formatDate(user.lastActivity)}</div>
                                     </div>
-
+                                    
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Активен:</label>
-                                        <div>${isActive ? '✅ Да' : '❌ Нет'}</div>
+                                        <div>${user.isActive ? '✅ Да' : '❌ Нет'}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Онлайн:</label>
-                                        <div>${isOnline ? '✅ Да' : '❌ Нет'}</div>
+                                        <div>${user.isOnline ? '✅ Да' : '❌ Нет'}</div>
                                     </div>
-
+                                    
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Забанен:</label>
-                                        <div>${isBanned ? '❌ Да' : '✅ Нет'}</div>
+                                        <div>${user.isBanned ? '❌ Да' : '✅ Нет'}</div>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label text-muted">Тип:</label>
-                                        <div><span class="badge bg-secondary">${status}</span></div>
+                                        <div><span class="badge bg-secondary">${user.status}</span></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     `;
-
+                    
                     const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
                     modal.show();
                 }
@@ -633,9 +498,9 @@
                 const response = await fetch('/api/v1/users/test', {
                     method: 'POST'
                 });
-
+                
                 const result = await response.json();
-
+                
                 if (result.success) {
                     alert('Тестовый пользователь создан!');
                     loadUsers(currentPage);
@@ -653,9 +518,9 @@
                 const response = await fetch(`/api/v1/users/bulk-test?count=${count}`, {
                     method: 'POST'
                 });
-
+                
                 const result = await response.json();
-
+                
                 if (result.success) {
                     alert(`Создано ${result.data.count} тестовых пользователей!`);
                     loadUsers(currentPage);
@@ -677,14 +542,14 @@
             if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
                 return;
             }
-
+            
             try {
                 const response = await fetch(`/api/v1/users/${userId}`, {
                     method: 'DELETE'
                 });
-
+                
                 const result = await response.json();
-
+                
                 if (result.success) {
                     alert('Пользователь удален');
                     loadUsers(currentPage);
@@ -701,7 +566,7 @@
             hideElement('usersTable');
             hideElement('paginationContainer');
             hideElement('noDataMessage');
-
+            
             const container = document.getElementById('usersTableBody').parentElement;
             container.innerHTML = `
                 <div class="alert alert-danger">
@@ -718,14 +583,14 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Загружаем пользователей
             loadUsers();
-
+            
             // Настройка поиска по Enter
             document.getElementById('searchInput').addEventListener('keyup', function(event) {
                 if (event.key === 'Enter') {
                     searchUsers();
                 }
             });
-
+            
             // Автообновление каждые 30 секунд
             setInterval(() => {
                 loadUsers(currentPage);
@@ -739,28 +604,28 @@
             align-items: center;
             justify-content: center;
         }
-
+        
         .avatar-lg {
             width: 100px;
             height: 100px;
             font-size: 2rem;
         }
-
+        
         .table th {
             border-top: none;
             font-weight: 600;
         }
-
+        
         .card {
             border: none;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
         }
-
+        
         .card-header {
             background-color: #f8f9fa;
             border-bottom: 1px solid #e9ecef;
         }
-
+        
         .badge {
             font-size: 0.85em;
             padding: 0.35em 0.65em;

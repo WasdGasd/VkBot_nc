@@ -1,11 +1,8 @@
-﻿using AdminPanel.Configs;
-using AdminPanel.Models;
-using AdminPanel.Models.BotApi;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
-using System.Net.Http;
-using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using AdminPanel.Configs;
+using AdminPanel.Models;
 
 namespace AdminPanel.Services
 {
@@ -14,24 +11,19 @@ namespace AdminPanel.Services
         private readonly string _connectionString;
         private readonly ILogger<UserService> _logger;
         private readonly BotPathsConfig _botPaths;
-        private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
 
         public UserService(
             IConfiguration configuration,
             ILogger<UserService> logger,
-            IOptions<BotPathsConfig> botPathsConfig,
-            IHttpClientFactory httpClientFactory)
+            IOptions<BotPathsConfig> botPathsConfig)
         {
             _logger = logger;
             _botPaths = botPathsConfig.Value;
-            _configuration = configuration;
-            _httpClient = httpClientFactory.CreateClient("BotApi");
 
             var dbPath = _botPaths.DatabasePath;
             _connectionString = $"Data Source={dbPath};Pooling=true;Cache=Shared;";
 
-            _logger.LogInformation("UserService инициализирован с реальными данными бота");
+            _logger.LogInformation("UserService инициализирован. Путь к БД: {DbPath}", dbPath);
 
             // ГАРАНТИРОВАННО создаем таблицу при запуске
             InitializeDatabase();
@@ -192,10 +184,10 @@ namespace AdminPanel.Services
                       VALUES (987654321, 'Для студентов действует скидка 20% при предъявлении студенческого билета.', 0, DATETIME('now', '-1 day', '+10 minutes'))",
 
                     @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
-                      VALUES (555555555, 'До скольки вы работаете сегодня?', 1, DATETIME('now', '-30 минут'))",
+                      VALUES (555555555, 'До скольки вы работаете сегодня?', 1, DATETIME('now', '-30 minutes'))",
 
                     @"INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate) 
-                      VALUES (555555555, 'Мы работаем с 10:00 до 22:00. Последний сеанс в 21:00.', 0, DATETIME('now', '-25 минут'))"
+                      VALUES (555555555, 'Мы работаем с 10:00 до 22:00. Последний сеанс в 21:00.', 0, DATETIME('now', '-25 minutes'))"
                 };
 
                 foreach (var sql in testMessages)
@@ -212,7 +204,7 @@ namespace AdminPanel.Services
             }
         }
 
-        // ==================== РЕАЛЬНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ====================
+        // ==================== ОСНОВНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ====================
 
         public async Task<UserListResponse> GetUsersAsync(
             int page = 1,
@@ -221,367 +213,8 @@ namespace AdminPanel.Services
             string status = "all",
             string sortBy = "newest")
         {
-            _logger.LogInformation("Получение реальных пользователей: страница {Page}, поиск: '{Search}'", page, search);
+            _logger.LogInformation("Получение пользователей: страница {Page}, поиск: '{Search}'", page, search);
 
-            try
-            {
-                // Пробуем получить данные из реального API бота
-                var realUsers = await GetRealUsersFromBotAsync();
-
-                // Если не удалось получить реальные данные, используем локальную базу
-                if (realUsers == null || !realUsers.Any())
-                {
-                    _logger.LogWarning("Не удалось получить реальных пользователей, используем локальные данные");
-                    return await GetUsersFromLocalDatabaseAsync(page, pageSize, search ?? "", status, sortBy);
-                }
-
-                // Фильтрация и сортировка реальных данных
-                var filteredUsers = FilterRealUsers(realUsers, search, status);
-                var sortedUsers = SortRealUsers(filteredUsers, sortBy);
-
-                // Пагинация
-                var totalCount = filteredUsers.Count;
-                var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-                var paginatedUsers = sortedUsers
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToList();
-
-                // Конвертация в формат User
-                var users = ConvertToUsers(paginatedUsers);
-
-                return new UserListResponse
-                {
-                    Users = users,
-                    TotalCount = totalCount,
-                    Page = page,
-                    PageSize = pageSize,
-                    TotalPages = totalPages,
-                    ActiveCount = filteredUsers.Count(u => u.IsActive && !u.IsBanned),
-                    OnlineCount = filteredUsers.Count(u => u.IsOnline),
-                    NewTodayCount = filteredUsers.Count(u => u.RegisteredAt.Date == DateTime.Today)
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователей");
-                // В случае ошибки возвращаем данные из локальной базы
-                return await GetUsersFromLocalDatabaseAsync(page, pageSize, search ?? "", status, sortBy);
-            }
-        }
-
-        private async Task<List<BotApiUserResponse>> GetRealUsersFromBotAsync()
-        {
-            try
-            {
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                _logger.LogInformation("Попытка подключения к API бота: {BotApiUrl}/api/adminapi/users?all=true", botApiUrl);
-
-                var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users?all=true");
-
-                _logger.LogInformation("Ответ от API бота: StatusCode={StatusCode}", response.StatusCode);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("API бота не доступен: {StatusCode}, ReasonPhrase={ReasonPhrase}",
-                        response.StatusCode, response.ReasonPhrase);
-
-                    // Пробуем получить содержимое ошибки
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("Содержимое ошибки: {ErrorContent}", errorContent);
-
-                    return new List<BotApiUserResponse>();
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                _logger.LogDebug("Полученный контент от API бота: {Content}", content);
-
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var result = JsonSerializer.Deserialize<BotApiUserListResponse>(content, options);
-
-                if (result == null)
-                {
-                    _logger.LogWarning("Не удалось десериализовать ответ от API бота");
-                    return new List<BotApiUserResponse>();
-                }
-
-                _logger.LogInformation("Успешно получено {Count} пользователей из API бота", result.Users?.Count ?? 0);
-                return result?.Users ?? new List<BotApiUserResponse>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении данных из API бота: {Message}", ex.Message);
-                return new List<BotApiUserResponse>();
-            }
-        }
-
-        private List<BotApiUserResponse> FilterRealUsers(List<BotApiUserResponse> users, string search, string status)
-        {
-            if (string.IsNullOrEmpty(search) && status == "all")
-                return users;
-
-            var filtered = users.AsEnumerable();
-
-            if (!string.IsNullOrEmpty(search))
-            {
-                var searchLower = search.ToLower();
-                filtered = filtered.Where(u =>
-                    (u.FirstName?.ToLower() ?? "").Contains(searchLower) ||
-                    (u.LastName?.ToLower() ?? "").Contains(searchLower) ||
-                    (u.Username?.ToLower() ?? "").Contains(searchLower) ||
-                    u.VkId.ToString().Contains(search)
-                );
-            }
-
-            if (status != "all")
-            {
-                filtered = status switch
-                {
-                    "active" => filtered.Where(u => u.IsActive && !u.IsBanned),
-                    "inactive" => filtered.Where(u => !u.IsActive && !u.IsBanned),
-                    "banned" => filtered.Where(u => u.IsBanned),
-                    "online" => filtered.Where(u => u.IsOnline),
-                    _ => filtered
-                };
-            }
-
-            return filtered.ToList();
-        }
-
-        private List<BotApiUserResponse> SortRealUsers(List<BotApiUserResponse> users, string sortBy)
-        {
-            return sortBy switch
-            {
-                "oldest" => users.OrderBy(u => u.RegisteredAt).ToList(),
-                "name" => users.OrderBy(u => u.FirstName).ThenBy(u => u.LastName).ToList(),
-                "activity" => users.OrderByDescending(u => u.LastSeen).ToList(),
-                _ => users.OrderByDescending(u => u.RegisteredAt).ToList() // newest
-            };
-        }
-
-        // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ КОНВЕРТАЦИИ ====================
-
-        private List<User> ConvertToUsers(List<BotApiUserResponse> botUsers)
-        {
-            return botUsers.Select(botUser => new User
-            {
-                Id = (int)botUser.VkId, // Явное приведение long к int
-                VkUserId = botUser.VkId,
-                FirstName = botUser.FirstName ?? "Неизвестно",
-                LastName = botUser.LastName ?? "",
-                Username = botUser.Username ?? "",
-                IsActive = botUser.IsActive,
-                IsOnline = botUser.IsOnline,
-                LastActivity = botUser.LastSeen,
-                MessageCount = botUser.MessagesCount,
-                RegistrationDate = botUser.RegisteredAt,
-                IsBanned = botUser.IsBanned,
-                Status = botUser.Status ?? "user"
-            }).ToList();
-        }
-
-        private User ConvertToUser(BotApiUserDetailResponse realUser)
-        {
-            // Логируем структуру для отладки
-            try
-            {
-                var json = JsonSerializer.Serialize(realUser);
-                _logger.LogDebug("Структура BotApiUserDetailResponse: {Json}", json);
-            }
-            catch { }
-
-            try
-            {
-                // Пытаемся получить данные из вложенного объекта User или напрямую
-                object? source = realUser;
-
-                // Проверяем наличие свойства User
-                var userProperty = realUser.GetType().GetProperty("User");
-                if (userProperty != null)
-                {
-                    var userObj = userProperty.GetValue(realUser);
-                    if (userObj != null)
-                    {
-                        source = userObj;
-                    }
-                }
-
-                return new User
-                {
-                    Id = GetIntValue(source, "VkId", "Id", "UserId"),
-                    VkUserId = GetLongValue(source, "VkId", "Id", "UserId"),
-                    FirstName = GetStringValue(source, "FirstName", "Name", "First") ?? "Неизвестно",
-                    LastName = GetStringValue(source, "LastName", "Surname", "Last") ?? "",
-                    Username = GetStringValue(source, "Username", "Nickname", "Login") ?? "",
-                    IsActive = GetBoolValue(source, "IsActive", "Active"),
-                    IsOnline = GetBoolValue(source, "IsOnline", "Online"),
-                    LastActivity = GetDateTimeValue(source, "LastSeen", "LastActivity", "LastOnline"),
-                    MessageCount = GetIntValue(source, "MessagesCount", "MessageCount", "TotalMessages"),
-                    RegistrationDate = GetDateTimeValue(source, "RegisteredAt", "RegistrationDate", "CreatedAt"),
-                    IsBanned = GetBoolValue(source, "IsBanned", "Banned"),
-                    Status = GetStringValue(source, "Status", "Role", "Type") ?? "user"
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Не удалось конвертировать BotApiUserDetailResponse");
-                return CreateDefaultUser();
-            }
-        }
-
-        private int GetIntValue(object? obj, params string[] propertyNames)
-        {
-            if (obj == null) return 0;
-
-            foreach (var propertyName in propertyNames)
-            {
-                try
-                {
-                    var property = obj.GetType().GetProperty(propertyName);
-                    if (property != null)
-                    {
-                        var value = property.GetValue(obj);
-                        if (value != null)
-                        {
-                            if (value is int intValue) return intValue;
-                            if (value is long longValue) return (int)longValue;
-                            if (int.TryParse(value.ToString(), out int parsed)) return parsed;
-                        }
-                    }
-                }
-                catch { }
-            }
-            return 0;
-        }
-
-        private long GetLongValue(object? obj, params string[] propertyNames)
-        {
-            if (obj == null) return 0;
-
-            foreach (var propertyName in propertyNames)
-            {
-                try
-                {
-                    var property = obj.GetType().GetProperty(propertyName);
-                    if (property != null)
-                    {
-                        var value = property.GetValue(obj);
-                        if (value != null)
-                        {
-                            if (value is long longValue) return longValue;
-                            if (value is int intValue) return intValue;
-                            if (long.TryParse(value.ToString(), out long parsed)) return parsed;
-                        }
-                    }
-                }
-                catch { }
-            }
-            return 0;
-        }
-
-        private string? GetStringValue(object? obj, params string[] propertyNames)
-        {
-            if (obj == null) return null;
-
-            foreach (var propertyName in propertyNames)
-            {
-                try
-                {
-                    var property = obj.GetType().GetProperty(propertyName);
-                    if (property != null)
-                    {
-                        var value = property.GetValue(obj);
-                        if (value != null)
-                        {
-                            return value.ToString();
-                        }
-                    }
-                }
-                catch { }
-            }
-            return null;
-        }
-
-        private bool GetBoolValue(object? obj, params string[] propertyNames)
-        {
-            if (obj == null) return false;
-
-            foreach (var propertyName in propertyNames)
-            {
-                try
-                {
-                    var property = obj.GetType().GetProperty(propertyName);
-                    if (property != null)
-                    {
-                        var value = property.GetValue(obj);
-                        if (value != null)
-                        {
-                            if (value is bool boolValue) return boolValue;
-                            if (bool.TryParse(value.ToString(), out bool parsed)) return parsed;
-                            if (value is int intValue) return intValue != 0;
-                        }
-                    }
-                }
-                catch { }
-            }
-            return false;
-        }
-
-        private DateTime GetDateTimeValue(object? obj, params string[] propertyNames)
-        {
-            if (obj == null) return DateTime.Now;
-
-            foreach (var propertyName in propertyNames)
-            {
-                try
-                {
-                    var property = obj.GetType().GetProperty(propertyName);
-                    if (property != null)
-                    {
-                        var value = property.GetValue(obj);
-                        if (value != null)
-                        {
-                            if (value is DateTime dateTimeValue) return dateTimeValue;
-                            if (DateTime.TryParse(value.ToString(), out DateTime parsed)) return parsed;
-                        }
-                    }
-                }
-                catch { }
-            }
-            return DateTime.Now;
-        }
-
-        private User CreateDefaultUser()
-        {
-            return new User
-            {
-                Id = 0,
-                VkUserId = 0,
-                FirstName = "Неизвестно",
-                LastName = "",
-                Username = "",
-                IsActive = false,
-                IsOnline = false,
-                LastActivity = DateTime.Now,
-                MessageCount = 0,
-                RegistrationDate = DateTime.Now,
-                IsBanned = false,
-                Status = "user"
-            };
-        }
-
-        // Метод для работы с локальной базой (резервный вариант)
-        private async Task<UserListResponse> GetUsersFromLocalDatabaseAsync(
-            int page = 1,
-            int pageSize = 20,
-            string search = "",
-            string status = "all",
-            string sortBy = "newest")
-        {
             var response = new UserListResponse
             {
                 Page = page,
@@ -700,12 +333,12 @@ namespace AdminPanel.Services
                     response.Users.Add(user);
                 }
 
-                _logger.LogInformation("Загружено {Count} пользователей из локальной базы", response.Users.Count);
+                _logger.LogInformation("Загружено {Count} пользователей из {Total}", response.Users.Count, response.TotalCount);
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении пользователей из локальной базы");
+                _logger.LogError(ex, "Ошибка при получении пользователей");
                 throw;
             }
         }
@@ -733,60 +366,11 @@ namespace AdminPanel.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении статистики пользователей из локальной базы");
+                _logger.LogError(ex, "Ошибка при получении статистики пользователей");
             }
         }
-
-        // ==================== ПОЛУЧЕНИЕ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ ====================
 
         public async Task<User?> GetUserAsync(long vkUserId)
-        {
-            try
-            {
-                // Пробуем получить реального пользователя
-                var realUser = await GetRealUserFromBotAsync(vkUserId);
-                if (realUser != null)
-                {
-                    return ConvertToUser(realUser);
-                }
-
-                // Если не нашли, ищем в локальной базе
-                return await GetUserFromLocalDatabaseAsync(vkUserId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователя {VkUserId}", vkUserId);
-                return await GetUserFromLocalDatabaseAsync(vkUserId);
-            }
-        }
-
-        private async Task<BotApiUserDetailResponse?> GetRealUserFromBotAsync(long vkUserId)
-        {
-            try
-            {
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users/{vkUserId}");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                return JsonSerializer.Deserialize<BotApiUserDetailResponse>(content, options);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private async Task<User?> GetUserFromLocalDatabaseAsync(long vkUserId)
         {
             try
             {
@@ -831,8 +415,8 @@ namespace AdminPanel.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении пользователя из локальной базы {VkUserId}", vkUserId);
-                return null;
+                _logger.LogError(ex, "Ошибка при получении пользователя {VkUserId}", vkUserId);
+                throw;
             }
         }
 
@@ -888,7 +472,6 @@ namespace AdminPanel.Services
 
         public async Task<User> AddOrUpdateUserAsync(User user)
         {
-            // Обновляем в локальной базе для истории
             return await AddOrUpdateUserAsyncInternal(user);
         }
 
@@ -1174,92 +757,43 @@ namespace AdminPanel.Services
         // ==================== МЕТОДЫ ДЛЯ РАБОТЫ С СООБЩЕНИЯМИ ====================
 
         /// <summary>
-        /// Получить историю переписки с пользователем
+        /// Добавить сообщение в историю переписки
         /// </summary>
-        public async Task<List<Message>> GetUserMessagesAsync(long vkUserId, int limit = 50)
+        public async Task AddMessageAsync(long vkUserId, string messageText, bool isFromUser = true)
         {
             try
             {
-                // Пробуем получить реальные сообщения
-                var realMessages = await GetRealMessagesFromBotAsync(vkUserId, limit);
-                if (realMessages != null && realMessages.Any())
-                {
-                    return ConvertToMessages(realMessages, vkUserId);
-                }
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
 
-                // Если не удалось, используем локальные данные
-                return await GetMessagesFromLocalDatabaseAsync(vkUserId, limit);
+                var sql = @"
+                    INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate)
+                    VALUES (@VkUserId, @MessageText, @IsFromUser, CURRENT_TIMESTAMP)";
+
+                using var cmd = new SqliteCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@VkUserId", vkUserId);
+                cmd.Parameters.AddWithValue("@MessageText", messageText);
+                cmd.Parameters.AddWithValue("@IsFromUser", isFromUser);
+
+                await cmd.ExecuteNonQueryAsync();
+
+                _logger.LogDebug("Добавлено сообщение от пользователя {VkUserId}: {MessageText}",
+                    vkUserId, messageText.Length > 50 ? messageText.Substring(0, 50) + "..." : messageText);
+
+                // Обновляем счетчик сообщений пользователя
+                await IncrementMessageCountAsync(vkUserId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении сообщений пользователя {VkUserId}", vkUserId);
-                return await GetMessagesFromLocalDatabaseAsync(vkUserId, limit);
+                _logger.LogError(ex, "Ошибка при добавлении сообщения пользователя {VkUserId}", vkUserId);
+                throw;
             }
         }
 
-        private async Task<List<BotApiMessage>?> GetRealMessagesFromBotAsync(long vkUserId, int limit)
-        {
-            try
-            {
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users/{vkUserId}/messages?limit={limit}");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                // Пробуем десериализовать разными способами
-                try
-                {
-                    // Вариант 1: Прямой список сообщений
-                    var messages = JsonSerializer.Deserialize<List<BotApiMessage>>(content, options);
-                    if (messages != null && messages.Any())
-                        return messages;
-
-                    // Вариант 2: Обернутый ответ { messages: [...] }
-                    var wrappedResponse = JsonSerializer.Deserialize<Dictionary<string, object>>(content, options);
-                    if (wrappedResponse != null && wrappedResponse.ContainsKey("messages"))
-                    {
-                        var messagesJson = JsonSerializer.Serialize(wrappedResponse["messages"]);
-                        return JsonSerializer.Deserialize<List<BotApiMessage>>(messagesJson, options);
-                    }
-
-                    // Вариант 3: Ответ в формате BotApiMessageListResponse
-                    var listResponse = JsonSerializer.Deserialize<BotApiMessageListResponse>(content, options);
-                    return listResponse?.Messages;
-                }
-                catch
-                {
-                    return null;
-                }
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private List<Message> ConvertToMessages(List<BotApiMessage> realMessages, long vkUserId)
-        {
-            return realMessages.Select(real => new Message
-            {
-                Id = real.Id,
-                VkUserId = vkUserId,
-                MessageText = real.Text,
-                IsFromUser = real.IsFromUser,
-                MessageDate = real.SentAt,
-                CreatedAt = real.SentAt
-            }).ToList();
-        }
-
-        private async Task<List<Message>> GetMessagesFromLocalDatabaseAsync(long vkUserId, int limit)
+        /// <summary>
+        /// Получить историю переписки с пользователем
+        /// </summary>
+        public async Task<List<Message>> GetUserMessagesAsync(long vkUserId, int limit = 50)
         {
             var messages = new List<Message>();
 
@@ -1293,49 +827,14 @@ namespace AdminPanel.Services
                     });
                 }
 
-                _logger.LogDebug("Загружено {Count} сообщений из локальной базы для пользователя {VkUserId}",
-                    messages.Count, vkUserId);
+                _logger.LogDebug("Загружено {Count} сообщений пользователя {VkUserId}", messages.Count, vkUserId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении сообщений из локальной базы для пользователя {VkUserId}", vkUserId);
+                _logger.LogError(ex, "Ошибка при получении сообщений пользователя {VkUserId}", vkUserId);
             }
 
             return messages;
-        }
-
-        /// <summary>
-        /// Добавить сообщение в историю переписки
-        /// </summary>
-        public async Task AddMessageAsync(long vkUserId, string messageText, bool isFromUser = true)
-        {
-            try
-            {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
-
-                var sql = @"
-                    INSERT INTO Messages (VkUserId, MessageText, IsFromUser, MessageDate)
-                    VALUES (@VkUserId, @MessageText, @IsFromUser, CURRENT_TIMESTAMP)";
-
-                using var cmd = new SqliteCommand(sql, connection);
-                cmd.Parameters.AddWithValue("@VkUserId", vkUserId);
-                cmd.Parameters.AddWithValue("@MessageText", messageText);
-                cmd.Parameters.AddWithValue("@IsFromUser", isFromUser);
-
-                await cmd.ExecuteNonQueryAsync();
-
-                _logger.LogDebug("Добавлено сообщение от пользователя {VkUserId}: {MessageText}",
-                    vkUserId, messageText.Length > 50 ? messageText.Substring(0, 50) + "..." : messageText);
-
-                // Обновляем счетчик сообщений пользователя
-                await IncrementMessageCountAsync(vkUserId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при добавлении сообщения пользователя {VkUserId}", vkUserId);
-                throw;
-            }
         }
 
         /// <summary>

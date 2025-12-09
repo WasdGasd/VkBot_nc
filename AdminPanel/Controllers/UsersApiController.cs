@@ -1,9 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using AdminPanel.Services;
 using AdminPanel.Models;
-using AdminPanel.Models.BotApi;
 using Microsoft.Data.Sqlite;
-using System.Text.Json;
 
 namespace AdminPanel.Controllers
 {
@@ -14,22 +12,20 @@ namespace AdminPanel.Controllers
         private readonly UserService _userService;
         private readonly ILogger<UsersApiController> _logger;
         private readonly IConfiguration _configuration;
-        private readonly HttpClient _httpClient;
 
         public UsersApiController(
             UserService userService,
             ILogger<UsersApiController> logger,
-            IConfiguration configuration,
-            IHttpClientFactory httpClientFactory)
+            IConfiguration configuration)
         {
             _userService = userService;
             _logger = logger;
             _configuration = configuration;
-            _httpClient = httpClientFactory.CreateClient("BotApi");
         }
 
         // ==================== ДИАГНОСТИКА ====================
 
+        // GET: api/v1/users/diagnostic
         [HttpGet("diagnostic")]
         public async Task<IActionResult> Diagnostic()
         {
@@ -38,7 +34,7 @@ namespace AdminPanel.Controllers
             try
             {
                 var dbPath = _configuration["ConnectionStrings:DefaultConnection"]
-                    ?? @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
+             ?? @"C:\Users\kde\source\repos\VkBot_nordciti\VKBot_nordciti\vkbot.db";
                 var fileExists = System.IO.File.Exists(dbPath);
                 var fileSize = fileExists ? new FileInfo(dbPath).Length : 0;
 
@@ -146,6 +142,7 @@ namespace AdminPanel.Controllers
 
         // ==================== ОСНОВНЫЕ МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ====================
 
+        // GET: api/v1/users
         [HttpGet]
         public async Task<IActionResult> GetUsers(
             [FromQuery] int page = 1,
@@ -159,59 +156,9 @@ namespace AdminPanel.Controllers
 
             try
             {
-                // Сначала пробуем получить данные напрямую из API бота
-                var realUsersResponse = await GetUsersFromBotApi();
+                var result = await _userService.GetUsersAsync(page, pageSize, search, status, sort);
 
-                if (realUsersResponse != null && realUsersResponse.Users.Any())
-                {
-                    _logger.LogInformation("Получено {Count} реальных пользователей из API бота",
-                        realUsersResponse.Users.Count);
-
-                    // Фильтрация и сортировка
-                    var filteredUsers = FilterUsers(realUsersResponse.Users, search, status);
-                    var sortedUsers = SortUsers(filteredUsers, sort);
-
-                    var totalCount = filteredUsers.Count;
-                    var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-                    var paginatedUsers = sortedUsers
-                        .Skip((page - 1) * pageSize)
-                        .Take(pageSize)
-                        .ToList();
-
-                    var result = new
-                    {
-                        Users = paginatedUsers.Select(u => new User
-                        {
-                            Id = (int)u.VkId, // Используем VkId как Id для фронтенда
-                            VkUserId = u.VkId,
-                            FirstName = u.FirstName ?? "Неизвестно",
-                            LastName = u.LastName ?? "",
-                            Username = u.Username ?? "",
-                            IsActive = u.IsActive,
-                            IsOnline = u.IsOnline,
-                            LastActivity = u.LastSeen,
-                            MessageCount = u.MessagesCount,
-                            RegistrationDate = u.RegisteredAt,
-                            IsBanned = u.IsBanned,
-                            Status = u.Status ?? "user"
-                        }).ToList(),
-                        TotalCount = totalCount,
-                        Page = page,
-                        PageSize = pageSize,
-                        TotalPages = totalPages,
-                        ActiveCount = realUsersResponse.Users.Count(u => u.IsActive && !u.IsBanned),
-                        OnlineCount = realUsersResponse.Users.Count(u => u.IsOnline),
-                        NewTodayCount = realUsersResponse.Users.Count(u => u.RegisteredAt.Date == DateTime.Today)
-                    };
-
-                    return Ok(new ApiResponse(true, "Реальные пользователи получены из бота", result));
-                }
-
-                _logger.LogWarning("Не удалось получить пользователей из API бота, используем локальные данные");
-
-                // Если не удалось получить из API, используем UserService
-                var serviceResult = await _userService.GetUsersAsync(page, pageSize, search ?? "", status, sort);
-                return Ok(new ApiResponse(true, "Пользователи получены из локальной базы", serviceResult));
+                return Ok(new ApiResponse(true, "Пользователи получены", result));
             }
             catch (Exception ex)
             {
@@ -220,63 +167,7 @@ namespace AdminPanel.Controllers
             }
         }
 
-        [HttpGet("test-bot-api")]
-        public async Task<IActionResult> TestBotApiConnection()
-        {
-            try
-            {
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-
-                _logger.LogInformation("Тестирование подключения к API бота: {Url}", botApiUrl);
-
-                // 1. Проверяем доступность базового URL
-                var healthResponse = await _httpClient.GetAsync($"{botApiUrl}/health");
-                var healthStatus = healthResponse.IsSuccessStatusCode ? "доступен" : "недоступен";
-
-                // 2. Проверяем endpoint пользователей
-                var usersResponse = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users?all=true");
-                var usersStatus = usersResponse.IsSuccessStatusCode ? "доступен" : "недоступен";
-
-                string usersContent = "";
-                if (usersResponse.IsSuccessStatusCode)
-                {
-                    usersContent = await usersResponse.Content.ReadAsStringAsync();
-                    var usersData = JsonSerializer.Deserialize<BotApiUserListResponse>(usersContent,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                    return Ok(new ApiResponse(true, "API бота доступен", new
-                    {
-                        botApiUrl,
-                        healthEndpoint = healthStatus,
-                        usersEndpoint = usersStatus,
-                        usersCount = usersData?.Users?.Count ?? 0,
-                        sampleData = usersData?.Users?.Take(3),
-                        rawResponse = usersContent.Length > 500 ? usersContent.Substring(0, 500) + "..." : usersContent
-                    }));
-                }
-                else
-                {
-                    return Ok(new ApiResponse(false, "API бота недоступен", new
-                    {
-                        botApiUrl,
-                        healthEndpoint = healthStatus,
-                        usersEndpoint = usersStatus,
-                        errorCode = (int)usersResponse.StatusCode,
-                        errorReason = usersResponse.ReasonPhrase
-                    }));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка тестирования API бота");
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
-
-        // UsersApiController.cs - в методе GetUser обновите код:
-
-        // В UsersApiController.cs исправьте метод GetUser:
-
+        // GET: api/v1/users/{id}
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetUser(int id)
         {
@@ -284,68 +175,17 @@ namespace AdminPanel.Controllers
 
             try
             {
-                // Сначала получаем пользователя
                 var user = await _userService.GetUserByIdAsync(id);
+
                 if (user == null)
                 {
                     return NotFound(new ApiResponse(false, $"Пользователь с ID {id} не найден"));
                 }
 
-                // Пробуем получить реальные данные из бота
-                try
-                {
-                    var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                    var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users/{user.VkUserId}");
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var content = await response.Content.ReadAsStringAsync();
-                        var realUser = JsonSerializer.Deserialize<BotApiUserDetailResponse>(content, new JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true
-                        });
-
-                        if (realUser != null && realUser.User != null)
-                        {
-                            return Ok(new ApiResponse(true, "Пользователь найден (реальные данные)", new
-                            {
-                                user = new User
-                                {
-                                    Id = user.Id,
-                                    VkUserId = realUser.User.VkId,
-                                    FirstName = realUser.User.FirstName ?? "Неизвестно",
-                                    LastName = realUser.User.LastName ?? "",
-                                    Username = realUser.User.Username ?? "",
-                                    IsActive = realUser.User.IsActive,
-                                    IsOnline = realUser.User.IsOnline,
-                                    LastActivity = realUser.User.LastSeen,
-                                    MessageCount = realUser.User.MessagesCount,
-                                    RegistrationDate = realUser.User.RegisteredAt,
-                                    IsBanned = realUser.User.IsBanned,
-                                    Status = realUser.User.Status ?? "user"
-                                },
-                                recentMessages = realUser.Messages.Select(m => new Message
-                                {
-                                    Id = m.Id,
-                                    VkUserId = m.VkId,
-                                    MessageText = m.Text,
-                                    IsFromUser = m.IsFromUser,
-                                    MessageDate = m.SentAt
-                                }),
-                                statistics = realUser.Stats
-                            }));
-                        }
-                    }
-                }
-                catch (Exception apiEx)
-                {
-                    _logger.LogWarning(apiEx, "Не удалось получить реальные данные пользователя");
-                }
-
-                // Если не удалось получить реальные данные, используем локальные
+                // Получаем сообщения пользователя
                 var messages = await _userService.GetUserMessagesAsync(user.VkUserId, 10);
 
-                return Ok(new ApiResponse(true, "Пользователь найден (локальные данные)", new
+                return Ok(new ApiResponse(true, "Пользователь найден", new
                 {
                     user,
                     recentMessages = messages,
@@ -364,6 +204,31 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/vk/{vkUserId}
+        [HttpGet("vk/{vkUserId:long}")]
+        public async Task<IActionResult> GetUserByVkId(long vkUserId)
+        {
+            _logger.LogInformation("GET /api/v1/users/vk/{VkUserId}", vkUserId);
+
+            try
+            {
+                var user = await _userService.GetUserAsync(vkUserId);
+
+                if (user == null)
+                {
+                    return NotFound(new ApiResponse(false, $"Пользователь с VK ID {vkUserId} не найден"));
+                }
+
+                return Ok(new ApiResponse(true, "Пользователь найден", user));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении пользователя VK ID {VkUserId}", vkUserId);
+                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
+            }
+        }
+
+        // POST: api/v1/users
         [HttpPost]
         public async Task<IActionResult> CreateUser([FromBody] User user)
         {
@@ -393,6 +258,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // PUT: api/v1/users/{id}
         [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateUser(int id, [FromBody] User user)
         {
@@ -443,72 +309,9 @@ namespace AdminPanel.Controllers
             }
         }
 
-        [HttpGet("simple")]
-        public async Task<IActionResult> GetUsersSimple()
-        {
-            try
-            {
-                // Прямой запрос к API бота
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users?all=true");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("API бота недоступен: {StatusCode}", response.StatusCode);
-
-                    // Возвращаем локальные данные
-                    var localResult = await _userService.GetUsersAsync(1, 20);
-                    return Ok(new ApiResponse(false, "API бота недоступен, локальные данные", localResult));
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                var realUsers = JsonSerializer.Deserialize<BotApiUserListResponse>(content, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (realUsers == null || !realUsers.Users.Any())
-                {
-                    _logger.LogWarning("API бота вернул пустой список");
-                    var localResult = await _userService.GetUsersAsync(1, 20);
-                    return Ok(new ApiResponse(false, "API бота вернул пустые данные", localResult));
-                }
-
-                // Преобразуем в формат фронтенда
-                var users = realUsers.Users.Select(u => new User
-                {
-                    Id = (int)u.VkId,
-                    VkUserId = u.VkId,
-                    FirstName = u.FirstName ?? "Неизвестно",
-                    LastName = u.LastName ?? "",
-                    Username = u.Username ?? "",
-                    IsActive = u.IsActive,
-                    IsOnline = u.IsOnline,
-                    LastActivity = u.LastSeen,
-                    MessageCount = u.MessagesCount,
-                    RegistrationDate = u.RegisteredAt,
-                    IsBanned = u.IsBanned,
-                    Status = u.Status ?? "user"
-                }).ToList();
-
-                return Ok(new ApiResponse(true, "Реальные данные из API бота", new
-                {
-                    Users = users,
-                    TotalCount = realUsers.TotalCount,
-                    ActiveCount = realUsers.ActiveCount,
-                    OnlineCount = realUsers.OnlineCount,
-                    NewTodayCount = realUsers.NewTodayCount
-                }));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при получении пользователей");
-                return StatusCode(500, new ApiResponse(false, $"Ошибка: {ex.Message}"));
-            }
-        }
-
         // ==================== МЕТОДЫ ДЛЯ СТАТУСА И АКТИВНОСТИ ====================
 
+        // PATCH: api/v1/users/{id}/status
         [HttpPatch("{id:int}/status")]
         public async Task<IActionResult> UpdateUserStatus(int id, [FromBody] UpdateUserStatusRequest request)
         {
@@ -532,6 +335,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // PATCH: api/v1/users/vk/{vkUserId}/activity
         [HttpPatch("vk/{vkUserId:long}/activity")]
         public async Task<IActionResult> UpdateUserActivity(long vkUserId, [FromBody] UpdateUserActivityRequest request)
         {
@@ -555,6 +359,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/vk/{vkUserId}/message
         [HttpPost("vk/{vkUserId:long}/message")]
         public async Task<IActionResult> IncrementMessageCount(long vkUserId)
         {
@@ -578,6 +383,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // DELETE: api/v1/users/{id}
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
@@ -603,6 +409,7 @@ namespace AdminPanel.Controllers
 
         // ==================== МЕТОДЫ ДЛЯ ПОИСКА И СТАТИСТИКИ ====================
 
+        // GET: api/v1/users/search
         [HttpGet("search")]
         public async Task<IActionResult> SearchUsers([FromQuery] string query)
         {
@@ -626,6 +433,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/stats
         [HttpGet("stats")]
         public async Task<IActionResult> GetUserStats()
         {
@@ -655,6 +463,7 @@ namespace AdminPanel.Controllers
 
         // ==================== МЕТОДЫ ДЛЯ РАБОТЫ С ПЕРЕПИСКОЙ ====================
 
+        // GET: api/v1/users/with-messages
         [HttpGet("with-messages")]
         public async Task<IActionResult> GetUsersWithMessages(
             [FromQuery] int days = 30,
@@ -701,6 +510,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/{id}/messages
         [HttpGet("{id:int}/messages")]
         public async Task<IActionResult> GetUserMessages(
             int id,
@@ -762,6 +572,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/{id}/messages
         [HttpPost("{id:int}/messages")]
         public async Task<IActionResult> AddMessage(
             int id,
@@ -811,6 +622,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/{id}/send-message
         [HttpPost("{id:int}/send-message")]
         public async Task<IActionResult> SendMessageToUser(
             int id,
@@ -857,6 +669,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/messages/stats
         [HttpGet("messages/stats")]
         public async Task<IActionResult> GetMessagesStats(
             [FromQuery] int days = 30,
@@ -899,6 +712,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/recent-chats
         [HttpGet("recent-chats")]
         public async Task<IActionResult> GetRecentChats(
             [FromQuery] int limit = 20,
@@ -936,6 +750,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/today
         [HttpGet("today")]
         public async Task<IActionResult> GetUsersMessagedToday()
         {
@@ -960,6 +775,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/{id}/summary
         [HttpGet("{id:int}/summary")]
         public async Task<IActionResult> GetUserSummary(int id)
         {
@@ -998,6 +814,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/{id}/test-messages
         [HttpPost("{id:int}/test-messages")]
         public async Task<IActionResult> AddTestMessages(int id, [FromQuery] int count = 10)
         {
@@ -1088,6 +905,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/import-messages
         [HttpPost("import-messages")]
         public async Task<IActionResult> ImportMessages([FromBody] List<BotMessageImport> messages)
         {
@@ -1121,6 +939,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/cleanup-messages
         [HttpPost("cleanup-messages")]
         public async Task<IActionResult> CleanupMessages([FromQuery] int days = 90)
         {
@@ -1154,6 +973,7 @@ namespace AdminPanel.Controllers
 
         // ==================== ТЕСТОВЫЕ МЕТОДЫ ====================
 
+        // POST: api/v1/users/test
         [HttpPost("test")]
         public async Task<IActionResult> CreateTestUser()
         {
@@ -1202,6 +1022,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // POST: api/v1/users/bulk-test
         [HttpPost("bulk-test")]
         public async Task<IActionResult> CreateBulkTestUsers([FromQuery] int count = 5)
         {
@@ -1264,6 +1085,7 @@ namespace AdminPanel.Controllers
             }
         }
 
+        // GET: api/v1/users/check-db
         [HttpGet("check-db")]
         public IActionResult CheckDatabase()
         {
@@ -1325,77 +1147,6 @@ namespace AdminPanel.Controllers
         }
 
         // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-
-        private async Task<BotApiUserListResponse?> GetUsersFromBotApi()
-        {
-            try
-            {
-                var botApiUrl = _configuration["BotApi:BaseUrl"] ?? "http://localhost:5000";
-                _logger.LogInformation("Запрос к API бота: {Url}/api/adminapi/users?all=true", botApiUrl);
-
-                var response = await _httpClient.GetAsync($"{botApiUrl}/api/adminapi/users?all=true");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("API бота вернул ошибку: {StatusCode}", response.StatusCode);
-                    return null;
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                _logger.LogDebug("Ответ API бота: {Content}", content);
-
-                return JsonSerializer.Deserialize<BotApiUserListResponse>(content, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка при запросе к API бота");
-                return null;
-            }
-        }
-
-        private List<BotApiUserResponse> FilterUsers(List<BotApiUserResponse> users, string search, string status)
-        {
-            var filtered = users.AsEnumerable();
-
-            if (!string.IsNullOrEmpty(search))
-            {
-                var searchLower = search.ToLower();
-                filtered = filtered.Where(u =>
-                    (u.FirstName?.ToLower() ?? "").Contains(searchLower) ||
-                    (u.LastName?.ToLower() ?? "").Contains(searchLower) ||
-                    (u.Username?.ToLower() ?? "").Contains(searchLower) ||
-                    u.VkId.ToString().Contains(search)
-                );
-            }
-
-            if (status != "all")
-            {
-                filtered = status switch
-                {
-                    "active" => filtered.Where(u => u.IsActive && !u.IsBanned),
-                    "inactive" => filtered.Where(u => !u.IsActive && !u.IsBanned),
-                    "banned" => filtered.Where(u => u.IsBanned),
-                    "online" => filtered.Where(u => u.IsOnline),
-                    _ => filtered
-                };
-            }
-
-            return filtered.ToList();
-        }
-
-        private List<BotApiUserResponse> SortUsers(List<BotApiUserResponse> users, string sort)
-        {
-            return sort switch
-            {
-                "oldest" => users.OrderBy(u => u.RegisteredAt).ToList(),
-                "name" => users.OrderBy(u => u.FirstName).ThenBy(u => u.LastName).ToList(),
-                "activity" => users.OrderByDescending(u => u.LastSeen).ToList(),
-                _ => users.OrderByDescending(u => u.RegisteredAt).ToList() // newest
-            };
-        }
 
         private string GetRandomFirstName()
         {
