@@ -1,4 +1,7 @@
 ﻿using System.Collections.Concurrent;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace VKBot_nordciti.Services
 {
@@ -12,6 +15,37 @@ namespace VKBot_nordciti.Services
         BotStats GetStats();
         Dictionary<string, int> GetCommandStats();
         List<UserActivity> GetHourlyActivity();
+
+        Dictionary<string, int> GetCommandStatsFromDatabase();
+        Task SaveDailyStatsAsync();
+        Task<Dictionary<string, int>> LoadCommandsFromDatabaseAsync();
+    }
+
+    // КЛАССЫ ВЫНОСИМ СЮДА, ВНЕ КЛАССА BotStatsService
+    public class UserStat
+    {
+        public long UserId { get; set; }
+        public int MessagesCount { get; set; }
+        public bool IsOnline { get; set; }
+        public DateTime LastActivity { get; set; }
+    }
+
+    public class BotStats
+    {
+        public int TotalUsers { get; set; }
+        public int ActiveUsersToday { get; set; }
+        public int OnlineUsers { get; set; }
+        public int TotalMessages { get; set; }
+        public int MessagesLastHour { get; set; }
+        public int TotalCommands { get; set; }
+        public TimeSpan Uptime { get; set; }
+        public DateTime LastUpdate { get; set; }
+    }
+
+    public class UserActivity
+    {
+        public string Time { get; set; } = string.Empty;
+        public int Count { get; set; }
     }
 
     public class BotStatsService : IBotStatsService
@@ -20,9 +54,101 @@ namespace VKBot_nordciti.Services
         private readonly ConcurrentDictionary<string, int> _commandStats = new();
         private readonly ConcurrentDictionary<int, int> _hourlyMessages = new();
 
+        private readonly string _connectionString;
+        private readonly ILogger<BotStatsService> _logger;
+        private bool _databaseLoaded = false;
+
         private DateTime _startTime = DateTime.Now;
         private int _totalMessages = 0;
         private int _totalCommands = 0;
+
+        public BotStatsService(IConfiguration configuration, ILogger<BotStatsService> logger)
+        {
+            _connectionString = configuration.GetConnectionString("DefaultConnection");
+            _logger = logger;
+            _ = LoadCommandsFromDatabaseAsync();
+        }
+
+        public async Task<Dictionary<string, int>> LoadCommandsFromDatabaseAsync()
+        {
+            var commands = new Dictionary<string, int>();
+
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return commands;
+
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                var commandText = @"
+                    SELECT CommandName, SUM(UsageCount) as TotalCount 
+                    FROM CommandStats 
+                    WHERE Date = @date 
+                    GROUP BY CommandName";
+
+                using var cmd = new SqliteCommand(commandText, connection);
+                cmd.Parameters.AddWithValue("@date", today);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var commandName = reader.GetString(0);
+                    var count = reader.GetInt32(1);
+
+                    _commandStats[commandName] = count;
+                    commands[commandName] = count;
+                    _totalCommands += count;
+                }
+
+                _databaseLoaded = true;
+                _logger.LogInformation($"Загружено {commands.Count} команд из БД за {today}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка загрузки команд из БД");
+            }
+
+            return commands;
+        }
+
+        public Dictionary<string, int> GetCommandStatsFromDatabase()
+        {
+            var commands = new Dictionary<string, int>();
+
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return commands;
+
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
+
+                var today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                var commandText = @"
+                    SELECT CommandName, UsageCount 
+                    FROM CommandStats 
+                    WHERE Date = @date";
+
+                using var cmd = new SqliteCommand(commandText, connection);
+                cmd.Parameters.AddWithValue("@date", today);
+
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    commands[reader.GetString(0)] = reader.GetInt32(1);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения команд из БД");
+            }
+
+            return commands;
+        }
 
         public void RegisterUserMessage(long userId, string message)
         {
@@ -45,6 +171,8 @@ namespace VKBot_nordciti.Services
                     stat.IsOnline = true;
                     return stat;
                 });
+
+            _ = UpdateDailyStatsInDatabaseAsync(userId);
         }
 
         public void RegisterBotMessage(long userId, string message)
@@ -52,6 +180,8 @@ namespace VKBot_nordciti.Services
             _totalMessages++;
             var hour = DateTime.Now.Hour;
             _hourlyMessages.AddOrUpdate(hour, 1, (_, count) => count + 1);
+
+            _ = UpdateDailyStatsInDatabaseAsync(userId);
         }
 
         public void RegisterCommandUsage(long userId, string command)
@@ -63,10 +193,8 @@ namespace VKBot_nordciti.Services
             Console.WriteLine($"🔍 Original command: '{command}'");
             Console.WriteLine($"🔍 Normalized: '{normalizedCommand}'");
 
-            // Проверяем эмодзи которые приходят как ??
             if (normalizedCommand.Contains("??") || normalizedCommand.Contains("ℹ?"))
             {
-                // Это эмодзи-кнопки
                 if (normalizedCommand.Contains("?? к информации") || normalizedCommand.Contains("ℹ? к информации"))
                 {
                     normalizedCommand = "информация";
@@ -92,7 +220,6 @@ namespace VKBot_nordciti.Services
                     normalizedCommand = "кнопка";
                 }
             }
-            // Проверяем обычные эмодзи
             else if (normalizedCommand.Contains("🔙") ||
                      normalizedCommand.Contains("📅") ||
                      normalizedCommand.Contains("📊") ||
@@ -106,7 +233,6 @@ namespace VKBot_nordciti.Services
                      normalizedCommand.Contains("👤") ||
                      normalizedCommand.Contains("👶"))
             {
-                // Убираем эмодзи и оставляем текст
                 normalizedCommand = RemoveEmojis(normalizedCommand).Trim();
 
                 if (string.IsNullOrEmpty(normalizedCommand))
@@ -115,11 +241,9 @@ namespace VKBot_nordciti.Services
                 }
                 else
                 {
-                    // УБЕРИ button_ префикс!
                     normalizedCommand = normalizedCommand.Replace("button_", "");
                 }
             }
-            // Если это текстовая команда
             else if (normalizedCommand.StartsWith("/") ||
                      normalizedCommand.Contains("билет") ||
                      normalizedCommand.Contains("загруженность") ||
@@ -130,7 +254,6 @@ namespace VKBot_nordciti.Services
                      normalizedCommand.Contains("время") ||
                      normalizedCommand.Contains("контакт"))
             {
-                // Оставляем как есть, но красиво форматируем
                 if (normalizedCommand.Contains("время"))
                 {
                     normalizedCommand = "время_работы";
@@ -139,21 +262,20 @@ namespace VKBot_nordciti.Services
                 {
                     normalizedCommand = "контакты";
                 }
-                else if (normalizedCommand.StartsWith("/"))
-                {
-                    // Команды с / оставляем
-                }
             }
             else
             {
-                // Простое сообщение
                 normalizedCommand = "сообщение";
             }
 
             Console.WriteLine($"📊 Final command: '{normalizedCommand}'");
-            _commandStats.AddOrUpdate(normalizedCommand, 1, (_, count) => count + 1);
 
-            // Обновляем активность
+            _commandStats.AddOrUpdate(normalizedCommand, 1, (_, count) => count + 1);
+            _ = SaveCommandToDatabaseAsync(normalizedCommand);
+
+            // ВАЖНО: Вызываем обновление DailyStats
+            _ = UpdateDailyStatsInDatabaseAsync(userId);
+
             _userStats.AddOrUpdate(userId,
                 new UserStat
                 {
@@ -169,22 +291,50 @@ namespace VKBot_nordciti.Services
                 });
         }
 
+        private async Task SaveCommandToDatabaseAsync(string command)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return;
+
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                var commandText = @"
+                    INSERT INTO CommandStats (CommandName, UsageCount, Date)
+                    VALUES (@command, 1, @date)
+                    ON CONFLICT(CommandName, Date) DO UPDATE SET
+                    UsageCount = UsageCount + 1";
+
+                using var cmd = new SqliteCommand(commandText, connection);
+                cmd.Parameters.AddWithValue("@command", command);
+                cmd.Parameters.AddWithValue("@date", today);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Ошибка сохранения команды '{command}' в БД");
+            }
+        }
+
         private string RemoveEmojis(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
 
-            // Убираем эмодзи и их ?? представление
             string[] emojis = {
-        "🔙", "📅", "📊", "ℹ️", "🎫", "🕒", "📞", "📍", "🎯", "💳", "👤", "👶",
-        "??", "ℹ?", "🕒?", "📊?", "🎫?"  // ?? версии эмодзи
-    };
+                "🔙", "📅", "📊", "ℹ️", "🎫", "🕒", "📞", "📍", "🎯", "💳", "👤", "👶",
+                "??", "ℹ?", "🕒?", "📊?", "🎫?"
+            };
 
             foreach (var emoji in emojis)
             {
                 text = text.Replace(emoji, "");
             }
 
-            // Убираем "к" или другие короткие слова после эмодзи
             text = text.Replace(" к информации", " информация");
             text = text.Replace(" время работы", " время_работы");
             text = text.Replace(" главное меню", " назад");
@@ -212,11 +362,9 @@ namespace VKBot_nordciti.Services
             var activeToday = _userStats.Values.Count(u => u.LastActivity.Date == today);
             var onlineNow = _userStats.Values.Count(u => u.IsOnline);
 
-            // Подсчет сообщений за последний час
             var lastHour = (now.Hour - 1 + 24) % 24;
             var messagesLastHour = _hourlyMessages.TryGetValue(lastHour, out var count) ? count : 0;
 
-            // Подсчет команд за сегодня
             var commandsToday = _commandStats.Values.Sum();
 
             return new BotStats
@@ -226,7 +374,7 @@ namespace VKBot_nordciti.Services
                 OnlineUsers = onlineNow,
                 TotalMessages = _totalMessages,
                 MessagesLastHour = messagesLastHour,
-                TotalCommands = _totalCommands,  // Это ВСЕ команды (включая кнопки)
+                TotalCommands = _totalCommands,
                 Uptime = now - _startTime,
                 LastUpdate = now
             };
@@ -256,31 +404,177 @@ namespace VKBot_nordciti.Services
 
             return result;
         }
-    }
 
-    public class UserStat
-    {
-        public long UserId { get; set; }
-        public int MessagesCount { get; set; }
-        public bool IsOnline { get; set; }
-        public DateTime LastActivity { get; set; }
-    }
+        public async Task SaveDailyStatsAsync()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return;
 
-    public class BotStats
-    {
-        public int TotalUsers { get; set; }
-        public int ActiveUsersToday { get; set; }
-        public int OnlineUsers { get; set; }
-        public int TotalMessages { get; set; }
-        public int MessagesLastHour { get; set; }
-        public int TotalCommands { get; set; }
-        public TimeSpan Uptime { get; set; }
-        public DateTime LastUpdate { get; set; }
-    }
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
 
-    public class UserActivity
-    {
-        public string Time { get; set; } = string.Empty;
-        public int Count { get; set; }
+                var today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                // Получаем TotalUsers
+                var totalUsersCommand = connection.CreateCommand();
+                totalUsersCommand.CommandText = "SELECT COUNT(DISTINCT VkUserId) FROM Users";
+                var totalUsers = Convert.ToInt32(await totalUsersCommand.ExecuteScalarAsync());
+
+                // Получаем ActiveUsers ИЗ UserActivity таблицы
+                var activeUsersCommand = connection.CreateCommand();
+                activeUsersCommand.CommandText = "SELECT COUNT(DISTINCT UserId) FROM UserActivity WHERE ActivityDate = @date";
+                activeUsersCommand.Parameters.AddWithValue("@date", today);
+                var activeUsers = Convert.ToInt32(await activeUsersCommand.ExecuteScalarAsync());
+
+                // Получаем MessagesCount из DailyStats
+                var dailyCommand = connection.CreateCommand();
+                dailyCommand.CommandText = "SELECT MessagesCount FROM DailyStats WHERE Date = @date";
+                dailyCommand.Parameters.AddWithValue("@date", today);
+
+                int messagesCount = 0;
+
+                using (var reader = await dailyCommand.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        messagesCount = reader.GetInt32(0);
+                    }
+                }
+
+                // Команд сегодня
+                var commandsCommand = connection.CreateCommand();
+                commandsCommand.CommandText = "SELECT SUM(UsageCount) FROM CommandStats WHERE Date = @date";
+                commandsCommand.Parameters.AddWithValue("@date", today);
+                var commandsResult = await commandsCommand.ExecuteScalarAsync();
+                var commandsCount = commandsResult != DBNull.Value ? Convert.ToInt32(commandsResult) : 0;
+
+                // Сохраняем в DailyStats
+                var insertCommand = connection.CreateCommand();
+                insertCommand.CommandText = @"
+            INSERT OR REPLACE INTO DailyStats 
+            (Date, TotalUsers, ActiveUsers, MessagesCount, CommandsCount)
+            VALUES (@date, @totalUsers, @activeUsers, @messagesCount, @commandsCount)";
+
+                insertCommand.Parameters.AddWithValue("@date", today);
+                insertCommand.Parameters.AddWithValue("@totalUsers", totalUsers);
+                insertCommand.Parameters.AddWithValue("@activeUsers", activeUsers);
+                insertCommand.Parameters.AddWithValue("@messagesCount", messagesCount);
+                insertCommand.Parameters.AddWithValue("@commandsCount", commandsCount);
+
+                await insertCommand.ExecuteNonQueryAsync();
+
+                _logger.LogInformation($"📊 DailyStats сохранены: Total={totalUsers}, Active={activeUsers}, Msgs={messagesCount}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка сохранения DailyStats");
+            }
+        }
+
+        // НОВЫЙ МЕТОД: Обновляет DailyStats при каждом сообщении
+        private async Task UpdateDailyStatsInDatabaseAsync(long userId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return;
+
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var today = DateTime.Today.ToString("yyyy-MM-dd");
+                var now = DateTime.Now;
+
+                // 1. ВСЕГДА берем TotalUsers из Users таблицы
+                var totalUsersCommand = connection.CreateCommand();
+                totalUsersCommand.CommandText = "SELECT COUNT(DISTINCT VkUserId) FROM Users";
+                var totalUsers = Convert.ToInt32(await totalUsersCommand.ExecuteScalarAsync());
+
+                // 2. Проверяем DailyStats за сегодня
+                var checkCommand = connection.CreateCommand();
+                checkCommand.CommandText = "SELECT MessagesCount FROM DailyStats WHERE Date = @date";
+                checkCommand.Parameters.AddWithValue("@date", today);
+
+                int messagesCount = 0;
+
+                using (var reader = await checkCommand.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        messagesCount = reader.GetInt32(0);
+                    }
+                }
+
+                // 3. Увеличиваем счетчик сообщений
+                messagesCount++;
+
+                // 4. Проверяем/добавляем активность пользователя в UserActivity
+                var userActivityCheckCommand = connection.CreateCommand();
+                userActivityCheckCommand.CommandText = @"
+            SELECT COUNT(*) FROM UserActivity 
+            WHERE UserId = @userId AND ActivityDate = @date";
+                userActivityCheckCommand.Parameters.AddWithValue("@userId", userId);
+                userActivityCheckCommand.Parameters.AddWithValue("@date", today);
+
+                var isUserAlreadyActive = Convert.ToInt32(await userActivityCheckCommand.ExecuteScalarAsync()) > 0;
+
+                // 5. Если пользователь еще не активен сегодня - добавляем в UserActivity
+                if (!isUserAlreadyActive)
+                {
+                    var insertActivityCommand = connection.CreateCommand();
+                    insertActivityCommand.CommandText = @"
+                INSERT INTO UserActivity (UserId, ActivityDate, FirstActivity, LastActivity)
+                VALUES (@userId, @date, @now, @now)";
+                    insertActivityCommand.Parameters.AddWithValue("@userId", userId);
+                    insertActivityCommand.Parameters.AddWithValue("@date", today);
+                    insertActivityCommand.Parameters.AddWithValue("@now", now);
+                    await insertActivityCommand.ExecuteNonQueryAsync();
+
+                    _logger.LogInformation($"✅ Пользователь {userId} добавлен в UserActivity");
+                }
+                else
+                {
+                    // Обновляем LastActivity если пользователь уже активен
+                    var updateActivityCommand = connection.CreateCommand();
+                    updateActivityCommand.CommandText = @"
+                UPDATE UserActivity 
+                SET LastActivity = @now 
+                WHERE UserId = @userId AND ActivityDate = @date";
+                    updateActivityCommand.Parameters.AddWithValue("@userId", userId);
+                    updateActivityCommand.Parameters.AddWithValue("@date", today);
+                    updateActivityCommand.Parameters.AddWithValue("@now", now);
+                    await updateActivityCommand.ExecuteNonQueryAsync();
+                }
+
+                // 6. Получаем количество активных пользователей ИЗ UserActivity
+                var activeUsersCommand = connection.CreateCommand();
+                activeUsersCommand.CommandText = "SELECT COUNT(DISTINCT UserId) FROM UserActivity WHERE ActivityDate = @date";
+                activeUsersCommand.Parameters.AddWithValue("@date", today);
+
+                int activeUsers = Convert.ToInt32(await activeUsersCommand.ExecuteScalarAsync());
+
+                // 7. Сохраняем в DailyStats
+                var saveCommand = connection.CreateCommand();
+                saveCommand.CommandText = @"
+            INSERT OR REPLACE INTO DailyStats 
+            (Date, TotalUsers, ActiveUsers, MessagesCount)
+            VALUES (@date, @totalUsers, @activeUsers, @messagesCount)";
+
+                saveCommand.Parameters.AddWithValue("@date", today);
+                saveCommand.Parameters.AddWithValue("@totalUsers", totalUsers);
+                saveCommand.Parameters.AddWithValue("@activeUsers", activeUsers);
+                saveCommand.Parameters.AddWithValue("@messagesCount", messagesCount);
+
+                await saveCommand.ExecuteNonQueryAsync();
+
+                _logger.LogInformation($"📊 DailyStats обновлены: Total={totalUsers}, Active={activeUsers}, Msgs={messagesCount}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка обновления DailyStats");
+            }
+        }
     }
 }
