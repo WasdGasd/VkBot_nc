@@ -19,6 +19,8 @@ namespace VKBot_nordciti.Services
         Dictionary<string, int> GetCommandStatsFromDatabase();
         Task SaveDailyStatsAsync();
         Task<Dictionary<string, int>> LoadCommandsFromDatabaseAsync();
+
+        Task<Dictionary<string, object>> GetWeeklyMessagesStatsAsync();
     }
 
     // КЛАССЫ ВЫНОСИМ СЮДА, ВНЕ КЛАССА BotStatsService
@@ -576,5 +578,72 @@ namespace VKBot_nordciti.Services
                 _logger.LogError(ex, "Ошибка обновления DailyStats");
             }
         }
+
+        // ==================== НОВЫЙ МЕТОД: Получает статистику сообщений за неделю ====================
+        public async Task<Dictionary<string, object>> GetWeeklyMessagesStatsAsync()
+        {
+            var result = new Dictionary<string, object>();
+
+            try
+            {
+                if (string.IsNullOrEmpty(_connectionString))
+                    return result;
+
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Получаем данные за последние 7 дней
+                var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                Date,
+                COALESCE(MessagesCount, 0) as MessagesCount
+            FROM DailyStats 
+            WHERE Date >= date('now', '-6 days')
+            ORDER BY Date ASC";
+
+                var labels = new List<string>();
+                var messagesData = new List<int>();
+
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var dateStr = reader.GetString(0);
+                        var messagesCount = reader.GetInt32(1);
+
+                        // Форматируем дату для отображения
+                        var date = DateTime.Parse(dateStr);
+                        labels.Add(date.ToString("dd.MM"));  // "01.03"
+                        messagesData.Add(messagesCount);
+                    }
+                }
+
+                // Если данных меньше 7 дней, заполняем нулями
+                var today = DateTime.Today;
+                for (int i = labels.Count; i < 7; i++)
+                {
+                    var date = today.AddDays(-(6 - i));
+                    labels.Add(date.ToString("dd.MM"));
+                    messagesData.Add(0);
+                }
+
+                result["labels"] = labels;
+                result["messagesData"] = messagesData;
+                result["totalMessages"] = messagesData.Sum();
+                result["averageMessages"] = messagesData.Count > 0 ? messagesData.Average() : 0;
+                result["maxMessages"] = messagesData.Count > 0 ? messagesData.Max() : 0;
+
+                _logger.LogInformation($"📈 Получена недельная статистика: {messagesData.Sum()} сообщений за 7 дней");
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения недельной статистики");
+                return result;
+            }
+        }
+
     }
 }

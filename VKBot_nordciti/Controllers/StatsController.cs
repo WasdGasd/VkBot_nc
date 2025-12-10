@@ -63,6 +63,8 @@ namespace VKBot_nordciti.Controllers
             }
         }
 
+
+
         // ЕДИНСТВЕННЫЙ метод для получения данных из DailyStats
         // ЕДИНСТВЕННЫЙ метод для получения данных из DailyStats
         private async Task<DailyStatsRecord> GetDailyStatsFromDbAsync()
@@ -195,12 +197,93 @@ namespace VKBot_nordciti.Controllers
             }
         }
 
+
+
+
         // Класс для хранения данных из DailyStats
         public class DailyStatsRecord
         {
             public int TotalUsers { get; set; }
             public int ActiveUsers { get; set; }
             public int MessagesCount { get; set; }
+        }
+
+        [HttpGet("weekly-messages")]
+        public async Task<IActionResult> GetWeeklyMessagesStats()
+        {
+            try
+            {
+                // Вызов метода из сервиса
+                var weeklyStats = await GetWeeklyMessagesFromDbAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    data = weeklyStats
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting weekly messages stats");
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
+        private async Task<Dictionary<string, object>> GetWeeklyMessagesFromDbAsync()
+        {
+            var result = new Dictionary<string, object>();
+
+            try
+            {
+                using var connection = new SqliteConnection(_configuration.GetConnectionString("DefaultConnection"));
+                await connection.OpenAsync();
+
+                // Получаем сообщения за последние 7 дней
+                var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                Date,
+                COALESCE(MessagesCount, 0) as MessagesCount
+            FROM DailyStats 
+            WHERE Date >= date('now', '-6 days')
+            ORDER BY Date ASC";
+
+                var labels = new List<string>();
+                var messagesData = new List<int>();
+
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var dateStr = reader.GetString(0);
+                        var messagesCount = reader.GetInt32(1);
+
+                        // Форматируем дату
+                        var date = DateTime.Parse(dateStr);
+                        labels.Add(date.ToString("dd.MM"));
+                        messagesData.Add(messagesCount);
+                    }
+                }
+
+                // Заполняем до 7 дней
+                var today = DateTime.Today;
+                for (int i = labels.Count; i < 7; i++)
+                {
+                    var date = today.AddDays(-(6 - i));
+                    labels.Add(date.ToString("dd.MM"));
+                    messagesData.Add(0);
+                }
+
+                result["labels"] = labels;
+                result["messagesData"] = messagesData;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting weekly messages from DB");
+                return result;
+            }
         }
     }
 }
