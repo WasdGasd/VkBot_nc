@@ -315,7 +315,7 @@ namespace VKBot_nordciti.Services
             if (lowerText.Contains("билет") || text.Contains("📅"))
             {
                 _state.SetState(userId, ConversationState.WaitingForDate);
-                await SendMessage(peerId, "🎫 **ПОКУПКА БИЛЕТОВ**\n\nВыберите дату для посещения:", _kb.TicketsDateKeyboard());
+                await SendMessage(peerId, "🎫 ПОКУПКА БИЛЕТОВ\n\nВыберите дату для посещения:", _kb.TicketsDateKeyboard());
                 return;
             }
 
