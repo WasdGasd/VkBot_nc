@@ -13,6 +13,9 @@ namespace VKBot_nordciti.VK
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly ILogger<VkApiManager> _logger;
 
+
+
+
         public VkApiManager(HttpClient httpClient, IConfiguration configuration, ILogger<VkApiManager> logger)
         {
             _httpClient = httpClient;
