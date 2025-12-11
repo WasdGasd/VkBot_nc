@@ -330,15 +330,47 @@
                         </div>
 
                         <div class="col-12">
-                            <label for="commandKeyboard" class="form-label">Клавиатура (JSON)</label>
-                            <textarea class="form-control" id="commandKeyboard" rows="3"
-                                      placeholder='{"inline": false, "buttons": [[{"action": {"type": "text", "label": "Кнопка 1", "payload": ""}, "color": "primary"}]]}'>
-                            </textarea>
+                            <label for="commandKeyboard" class="form-label">Кнопки меню </label>
+
+                            <!-- Кнопки шаблонов -->
+                            <div class="mb-2">
+                                <small class="text-muted me-2">Быстрые шаблоны:</small>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="loadTemplate('main_menu')">
+                                    Главное меню
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="loadTemplate('info_menu')">
+                                    Меню информации
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="loadTemplate('yes_no')">
+                                    Да/Нет
+                                </button>
+                            </div>
+
+                            <!-- Простое поле для кнопок -->
+                            <textarea class="form-control" id="simpleButtons" rows="3"
+                                      placeholder="🎫 Билеты
+📊 Загруженность
+ℹ️ Информация
+🔙 Назад"
+                                      oninput="updateButtonPreview()"></textarea>
+
+                            <!-- Предпросмотр -->
+                            <div class="mt-2">
+                                <label class="form-label">Предпросмотр кнопок:</label>
+                                <div id="buttonPreview" class="border rounded p-3 bg-light">
+                                    <p class="text-muted mb-0">Кнопки появятся здесь...</p>
+                                </div>
+                            </div>
+
+                            <!-- Скрытое поле JSON (для совместимости) -->
+                            <textarea class="form-control d-none" id="commandKeyboard" rows="3"></textarea>
+
                             <small class="text-muted">
-                                Необязательно. Формат VK клавиатуры.
-                                <a href="#" onclick="return showKeyboardExamples()">Примеры</a>
+                                Просто пишите кнопки по одной в строке. Система сама создаст меню.
                             </small>
                         </div>
+
+
                     </div>
                 </form>
             </div>
@@ -498,6 +530,16 @@
 
                 // Автоматическое обновление статуса каждые 10 секунд
                 setInterval(loadRealStatus, 10000);
+
+                // 🔥 ДОБАВЬ ЭТО ПОСЛЕ setInterval:
+         // Инициализация конструктора кнопок
+         const simpleButtonsField = document.getElementById('simpleButtons');
+         if (simpleButtonsField) {
+             simpleButtonsField.addEventListener('input', updateButtonPreview);
+             console.log('✅ Конструктор кнопок инициализирован');
+         }
+
+         showNotification('✅ Панель управления загружена', 'success');
 
                 // Обновляем счетчик символов
                 const responseInput = document.getElementById('commandResponse');
@@ -1416,24 +1458,68 @@
             modal.show();
         }
 
-        async function editCommand(id) {
+               async function editCommand(id) {
+            console.log('Редактирование команды', id);
+
             try {
                 const response = await fetch(`/api/commands/${id}`);
                 const result = await response.json();
 
                 if (result.success) {
                     const cmd = result.data;
+                    console.log('Загружена команда:', cmd);
+
+                    // Заполняем основные поля
                     document.getElementById('modalTitle').textContent = 'Редактирование команды';
                     document.getElementById('commandId').value = cmd.id;
                     document.getElementById('commandName').value = cmd.name || '';
                     document.getElementById('commandTriggers').value = cmd.triggers || '';
                     document.getElementById('commandResponse').value = cmd.response || '';
                     document.getElementById('commandType').value = cmd.commandType || 'text';
-                    document.getElementById('commandKeyboard').value = cmd.keyboardJson || '';
-                    updateResponseCounter();
 
+                    // 🔥 ЗАГРУЖАЕМ КНОПКИ ИЗ JSON
+                    let buttonsText = '';
+
+                    if (cmd.keyboardJson && cmd.keyboardJson.trim()) {
+                        try {
+                            const keyboard = JSON.parse(cmd.keyboardJson);
+                            const buttons = [];
+
+                            // Извлекаем текст кнопок из JSON
+                            if (keyboard.buttons && Array.isArray(keyboard.buttons)) {
+                                keyboard.buttons.forEach(row => {
+                                    if (Array.isArray(row)) {
+                                        row.forEach(button => {
+                                            if (button.action && button.action.type === 'text') {
+                                                buttons.push(button.action.label);
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+
+                            buttonsText = buttons.join('\n');
+                            console.log('Извлеченные кнопки:', buttons);
+
+                        } catch (error) {
+                            console.warn('Не удалось распарсить JSON клавиатуры:', error);
+                            buttonsText = '';
+                        }
+                    }
+
+                    // Заполняем поле с кнопками
+                    document.getElementById('simpleButtons').value = buttonsText;
+
+                    // Также заполняем JSON поле для совместимости
+                    document.getElementById('commandKeyboard').value = cmd.keyboardJson || '';
+
+                    // Обновляем предпросмотр
+                    updateButtonPreview();
+
+                    // Показываем модальное окно
                     const modal = new bootstrap.Modal(document.getElementById('commandModal'));
                     modal.show();
+
                 } else {
                     showNotification(`❌ ${result.message || 'Ошибка загрузки'}`, 'danger');
                 }
@@ -1443,7 +1529,9 @@
             }
         }
 
-        async function saveCommand() {
+                async function saveCommand() {
+            console.log('saveCommand вызван');
+
             const form = document.getElementById('commandForm');
             if (!form.checkValidity()) {
                 form.classList.add('was-validated');
@@ -1451,13 +1539,72 @@
             }
 
             const commandId = document.getElementById('commandId').value;
+            const commandName = document.getElementById('commandName').value.trim();
+            const commandTriggers = document.getElementById('commandTriggers').value.trim();
+            const commandResponse = document.getElementById('commandResponse').value.trim();
+            const commandType = document.getElementById('commandType').value;
+
+            // Валидация
+            if (!commandName || !commandTriggers || !commandResponse) {
+                alert('Заполните все обязательные поля: название, триггеры и ответ');
+                return;
+            }
+
             const commandData = {
-                name: document.getElementById('commandName').value.trim(),
-                triggers: document.getElementById('commandTriggers').value.trim(),
-                response: document.getElementById('commandResponse').value.trim(),
-                commandType: document.getElementById('commandType').value,
-                keyboardJson: document.getElementById('commandKeyboard').value.trim() || null
+                name: commandName,
+                triggers: commandTriggers,
+                response: commandResponse,
+                commandType: commandType
             };
+
+            // 🔥 ПРЕОБРАЗУЕМ КНОПКИ ИЗ ТЕКСТА В JSON
+            const buttonsText = document.getElementById('simpleButtons').value.trim();
+            console.log('Кнопки:', buttonsText);
+
+            if (buttonsText) {
+                // Разбиваем на строки
+                const buttonsArray = buttonsText.split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
+
+                console.log('Массив кнопок:', buttonsArray);
+
+                if (buttonsArray.length > 0) {
+                    // Создаем массив кнопок VK (по 2 кнопки в строке)
+                    const vkButtons = [];
+                    let currentRow = [];
+
+                    buttonsArray.forEach((buttonText, index) => {
+                        currentRow.push({
+                            action: {
+                                type: "text",
+                                label: buttonText,
+                                payload: ""
+                            },
+                            color: getButtonColor(buttonText)
+                        });
+
+                        // Каждые 2 кнопки начинаем новую строку
+                        if (currentRow.length >= 2 || index === buttonsArray.length - 1) {
+                            vkButtons.push(currentRow);
+                            currentRow = [];
+                        }
+                    });
+
+                    // Создаем JSON клавиатуры
+                    const keyboardJson = JSON.stringify({
+                        one_time: false,
+                        inline: false,
+                        buttons: vkButtons
+                    });
+
+                    commandData.keyboardJson = keyboardJson;
+                    console.log('Создан JSON:', keyboardJson);
+
+                    // Сохраняем также в скрытое поле
+                    document.getElementById('commandKeyboard').value = keyboardJson;
+                }
+            }
 
             try {
                 const saveBtn = document.getElementById('saveCommandBtn');
@@ -1468,6 +1615,8 @@
                 const url = commandId ? `/api/commands/${commandId}` : '/api/commands';
                 const method = commandId ? 'PUT' : 'POST';
 
+                console.log('Отправляю данные:', commandData);
+
                 const response = await fetch(url, {
                     method: method,
                     headers: { 'Content-Type': 'application/json' },
@@ -1475,16 +1624,14 @@
                 });
 
                 const result = await response.json();
+                console.log('Ответ сервера:', result);
 
                 if (result.success) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('commandModal'));
                     if (modal) modal.hide();
 
-                    showNotification(`✅ Команда ${commandId ? 'обновлена' : 'создана'}`, 'success');
+                    showNotification(` Команда ${commandId ? 'обновлена' : 'создана'}`, 'success');
                     loadCommands(appState.currentPage);
-
-                    // Обновляем статус БД
-                    setTimeout(loadDatabaseInfo, 500);
                 } else {
                     showNotification(`❌ ${result.message || 'Ошибка сохранения'}`, 'danger');
                 }
@@ -1495,6 +1642,87 @@
                 const saveBtn = document.getElementById('saveCommandBtn');
                 saveBtn.innerHTML = 'Сохранить';
                 saveBtn.disabled = false;
+            }
+        }
+
+        // 🔥 Функция для определения цвета кнопки
+        function getButtonColor(buttonText) {
+            const text = buttonText.toLowerCase();
+
+            if (text.includes('🔙') || text.includes('назад') || text.includes('отмена') || text.includes('меню')) {
+                return "secondary";
+            }
+            if (text.includes('✅') || text.includes('да') || text.includes('подтвердить') || text.includes('купить') || text.includes('оплатить')) {
+                return "positive";
+            }
+            if (text.includes('❌') || text.includes('нет') || text.includes('отменить')) {
+                return "negative";
+            }
+
+            return "primary"; // По умолчанию синяя
+        }
+
+        // 🔥 Обновление предпросмотра кнопок
+        function updateButtonPreview() {
+            const preview = document.getElementById('buttonPreview');
+            if (!preview) {
+                console.error('Элемент buttonPreview не найден!');
+                return;
+            }
+
+            const buttonsText = document.getElementById('simpleButtons').value.trim();
+
+            if (!buttonsText) {
+                preview.innerHTML = '<p class="text-muted mb-0">Кнопки появятся здесь...</p>';
+                return;
+            }
+
+            const buttonsArray = buttonsText.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+
+            if (buttonsArray.length === 0) {
+                preview.innerHTML = '<p class="text-muted mb-0">Нет кнопок для отображения</p>';
+                return;
+            }
+
+            let html = '<div class="d-flex flex-wrap gap-2">';
+
+            buttonsArray.forEach(buttonText => {
+                const colorClass = getButtonPreviewClass(buttonText);
+                html += `<button type="button" class="btn btn-sm ${colorClass}">${buttonText}</button>`;
+            });
+
+            html += '</div>';
+            preview.innerHTML = html;
+        }
+
+        // 🔥 Класс для предпросмотра
+        function getButtonPreviewClass(buttonText) {
+            const color = getButtonColor(buttonText);
+
+            const colorMap = {
+                'primary': 'btn-primary',
+                'positive': 'btn-success',
+                'negative': 'btn-danger',
+                'secondary': 'btn-secondary',
+                'info': 'btn-info'
+            };
+
+            return colorMap[color] || 'btn-primary';
+        }
+
+        // 🔥 Загрузка шаблонов
+        function loadTemplate(templateName) {
+            const templates = {
+                'main_menu': "🎫 Билеты\n📊 Загруженность\nℹ️ Информация",
+                'info_menu': "🕒 Время работы\n📞 Контакты\n📍 Как добраться\n🔙 Назад",
+                'yes_no': "✅ Да\n❌ Нет\n🤔 Не знаю"
+            };
+
+            if (templates[templateName]) {
+                document.getElementById('simpleButtons').value = templates[templateName];
+                updateButtonPreview();
             }
         }
 
