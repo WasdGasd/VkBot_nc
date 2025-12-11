@@ -368,5 +368,70 @@ namespace VKBot_nordciti.Controllers
             }
         }
 
+        [HttpGet("health")]
+        public async Task<IActionResult> HealthCheck()
+        {
+            try
+            {
+                // 1. Проверяем базу данных
+                using var connection = new SqliteConnection(_configuration.GetConnectionString("DefaultConnection"));
+                await connection.OpenAsync();
+
+                var command = connection.CreateCommand();
+                command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table'";
+                var tablesCount = Convert.ToInt32(await command.ExecuteScalarAsync());
+
+                // 2. Проверяем таблицу команд
+                command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Commands'";
+                var hasCommandsTable = Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+
+                // 3. Проверяем количество команд
+                var commandsCount = 0;
+                if (hasCommandsTable)
+                {
+                    command.CommandText = "SELECT COUNT(*) FROM Commands";
+                    commandsCount = Convert.ToInt32(await command.ExecuteScalarAsync());
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    status = "healthy",
+                    timestamp = DateTime.Now,
+                    database = new
+                    {
+                        connected = true,
+                        tablesCount = tablesCount,
+                        hasCommandsTable = hasCommandsTable,
+                        commandsCount = commandsCount
+                    },
+                    api = new
+                    {
+                        version = "1.0.0",
+                        uptime = GetUptime(),
+                        endpoints = new[] { "memory", "database", "weekly-messages", "users", "health" }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Health check failed");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    status = "unhealthy",
+                    error = ex.Message,
+                    timestamp = DateTime.Now
+                });
+            }
+        }
+
+        // Вспомогательный метод для получения uptime
+        private static string GetUptime()
+        {
+            // Простая реализация - можно улучшить
+            return "online";
+        }
+
     }
     }

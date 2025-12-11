@@ -445,9 +445,9 @@ namespace AdminPanel.Services
 
             try
             {
-                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-
-                var response = await _httpClient.GetAsync($"{_botApiUrl}/health", cts.Token);
+                // 🔥 ИЗМЕНИТЕ ЭТОТ URL!
+                // Вместо /health теперь используйте /api/stats/health
+                var response = await _httpClient.GetAsync($"{_botApiUrl}/api/stats/health");
 
                 apiStatus.IsResponding = response.IsSuccessStatusCode;
                 apiStatus.StatusCode = (int)response.StatusCode;
@@ -455,7 +455,7 @@ namespace AdminPanel.Services
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var content = await response.Content.ReadAsStringAsync(cts.Token);
+                    var content = await response.Content.ReadAsStringAsync();
                     apiStatus.ResponseContent = (content?.Length > 200 ? content.Substring(0, 200) + "..." : content) ?? string.Empty;
                     _logger.LogDebug("API бота отвечает: {StatusCode}", response.StatusCode);
                 }
