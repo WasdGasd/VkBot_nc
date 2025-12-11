@@ -122,7 +122,7 @@
 
                 async function loadRealStats() {
             try {
-                console.log('🔄 Загружаем РЕАЛЬНУЮ статистику...');
+                console.log('🔄 Загружаем статистику...');
 
                 const response = await fetch('http://localhost:5101/api/stats/memory');
                 const result = await response.json();
@@ -159,7 +159,7 @@
                async function loadRealCommandsStats() {
             try {
                 document.getElementById('commandsList').innerHTML =
-                    '<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div> Загрузка РЕАЛЬНЫХ данных...</div>';
+                    '<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div> Загрузка данных...</div>';
 
                 const response = await fetch('http://localhost:5101/api/stats/memory');
                 const result = await response.json();
@@ -207,7 +207,7 @@
                 return;
             }
 
-            let html = '<h6>🏆 Топ команд (РЕАЛЬНЫЕ данные):</h6>';
+            let html = '<h6>🏆 Топ команд:</h6>';
             html += '<div class="list-group" style="max-height: 300px; overflow-y: auto;">';
 
             // Сортируем по использованию
@@ -278,7 +278,7 @@
                         legend: { display: false },
                         title: {
                             display: true,
-                            text: 'РЕАЛЬНОЕ использование команд',
+                            text: 'Диаграмма использования команд',
                             font: { size: 14 }
                         },
                         tooltip: {
@@ -456,7 +456,7 @@
                     plugins: {
                         title: {
                             display: true,
-                            text: 'Сообщений за неделю (из DailyStats)'
+                            text: 'Сообщений за неделю'
                         },
                         tooltip: {
                             callbacks: {
@@ -613,7 +613,7 @@
         // ==================== ИНИЦИАЛИЗАЦИЯ ====================
 
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('📊 Dashboard с РЕАЛЬНЫМИ данными загружается...');
+            console.log('📊 Dashboard с данными загружается...');
 
             // Загружаем РЕАЛЬНЫЕ данные
             loadAllRealStats();
@@ -621,7 +621,7 @@
             // Автообновление каждые 60 секунд
             setInterval(() => {
                 loadAllRealStats();
-                console.log('🔄 РЕАЛЬНАЯ статистика обновлена:', new Date().toLocaleTimeString());
+                console.log('🔄 Статистика обновлена:', new Date().toLocaleTimeString());
             }, 60000);
         });
 

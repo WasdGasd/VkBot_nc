@@ -31,9 +31,10 @@ namespace VKBot_nordciti.Controllers
             {
                 var stats = _statsService.GetStats();
                 var commands = _statsService.GetCommandStatsFromDatabase();
-
-                // ПОЛУЧАЕМ ДАННЫЕ ИЗ DailyStats ТАБЛИЦЫ!
                 var dailyStats = await GetDailyStatsFromDbAsync();
+
+                // 🔥 НОВОЕ: Получаем онлайн пользователей из таблицы Users
+                int onlineUsersFromDb = await GetOnlineUsersFromDatabaseAsync();
 
                 var response = new
                 {
@@ -41,25 +42,43 @@ namespace VKBot_nordciti.Controllers
                     message = "📊 Статистика из DailyStats таблицы",
                     data = new
                     {
-                        // ВСЕ данные теперь из DailyStats таблицы!
-                        totalUsers = dailyStats.TotalUsers,          // Из DailyStats.TotalUsers
-                        activeUsers = dailyStats.ActiveUsers,        // Из DailyStats.ActiveUsers  
-                        onlineUsers = stats.OnlineUsers,             // Из памяти бота (только это)
-                        messagesToday = dailyStats.MessagesCount,    // Из DailyStats.MessagesCount
-                        totalCommands = commands.Values.Sum(),       // Из CommandStats
-
+                        totalUsers = dailyStats.TotalUsers,
+                        activeUsers = dailyStats.ActiveUsers,
+                        onlineUsers = onlineUsersFromDb, // ← ИЗ БД, а не из памяти!
+                        messagesToday = dailyStats.MessagesCount,
+                        totalCommands = commands.Values.Sum(),
                         commands = commands
                     },
                     source = "DAILY_STATS_TABLE_ONLY"
                 };
 
-                _logger.LogInformation($"Stats from DailyStats: Total={dailyStats.TotalUsers}, Active={dailyStats.ActiveUsers}, Msgs={dailyStats.MessagesCount}");
+                _logger.LogInformation($"Stats from DailyStats: Total={dailyStats.TotalUsers}, Active={dailyStats.ActiveUsers}, Online={onlineUsersFromDb}, Msgs={dailyStats.MessagesCount}");
                 return Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting stats");
                 return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
+        // 🔥 НОВЫЙ метод: Получает онлайн пользователей из таблицы Users
+        private async Task<int> GetOnlineUsersFromDatabaseAsync()
+        {
+            try
+            {
+                using var connection = new SqliteConnection(_configuration.GetConnectionString("DefaultConnection"));
+                await connection.OpenAsync();
+
+                var command = connection.CreateCommand();
+                command.CommandText = "SELECT COUNT(*) FROM Users WHERE IsOnline = 1";
+
+                return Convert.ToInt32(await command.ExecuteScalarAsync());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения онлайн пользователей из БД");
+                return 0;
             }
         }
 
@@ -198,8 +217,6 @@ namespace VKBot_nordciti.Controllers
         }
 
 
-
-
         // Класс для хранения данных из DailyStats
         public class DailyStatsRecord
         {
@@ -238,18 +255,30 @@ namespace VKBot_nordciti.Controllers
                 using var connection = new SqliteConnection(_configuration.GetConnectionString("DefaultConnection"));
                 await connection.OpenAsync();
 
-                // Получаем сообщения за последние 7 дней
+                // Определяем начало недели (понедельник)
+                var today = DateTime.Today;
+                var dayOfWeek = (int)today.DayOfWeek;
+
+                // В C# DayOfWeek: Sunday=0, Monday=1, ..., Saturday=6
+                // Нам нужно найти понедельник текущей недели
+                var startOfWeek = today.AddDays(-(dayOfWeek == 0 ? 6 : dayOfWeek - 1));
+
+                _logger.LogInformation($"📅 Неделя с {startOfWeek:dd.MM.yyyy} (понедельник)");
+
+                // Получаем данные с понедельника по воскресенье текущей недели
                 var command = connection.CreateCommand();
                 command.CommandText = @"
             SELECT 
                 Date,
                 COALESCE(MessagesCount, 0) as MessagesCount
             FROM DailyStats 
-            WHERE Date >= date('now', '-6 days')
+            WHERE Date >= @startDate AND Date <= @endDate
             ORDER BY Date ASC";
 
-                var labels = new List<string>();
-                var messagesData = new List<int>();
+                command.Parameters.AddWithValue("@startDate", startOfWeek.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@endDate", startOfWeek.AddDays(6).ToString("yyyy-MM-dd")); // или startOfWeek.AddDays(6)
+
+                var dateDataDict = new Dictionary<string, int>();
 
                 using (var reader = await command.ExecuteReaderAsync())
                 {
@@ -258,32 +287,86 @@ namespace VKBot_nordciti.Controllers
                         var dateStr = reader.GetString(0);
                         var messagesCount = reader.GetInt32(1);
 
-                        // Форматируем дату
                         var date = DateTime.Parse(dateStr);
-                        labels.Add(date.ToString("dd.MM"));
-                        messagesData.Add(messagesCount);
+                        dateDataDict[date.ToString("dd.MM")] = messagesCount;
                     }
                 }
 
-                // Заполняем до 7 дней
-                var today = DateTime.Today;
-                for (int i = labels.Count; i < 7; i++)
+                // Генерируем метки с понедельника по воскресенье
+                var labels = new List<string>();
+                var messagesData = new List<int>();
+
+                // Проходим по всем дням недели
+                for (int i = 0; i < 7; i++)
                 {
-                    var date = today.AddDays(-(6 - i));
-                    labels.Add(date.ToString("dd.MM"));
-                    messagesData.Add(0);
+                    var currentDate = startOfWeek.AddDays(i);
+                    var dateKey = currentDate.ToString("dd.MM");
+
+                    // Русские сокращения дней недели
+                    var dayName = currentDate.DayOfWeek switch
+                    {
+                        DayOfWeek.Monday => "Пн",
+                        DayOfWeek.Tuesday => "Вт",
+                        DayOfWeek.Wednesday => "Ср",
+                        DayOfWeek.Thursday => "Чт",
+                        DayOfWeek.Friday => "Пт",
+                        DayOfWeek.Saturday => "Сб",
+                        DayOfWeek.Sunday => "Вс",
+                        _ => "??"
+                    };
+
+                    labels.Add($"{dayName} {currentDate:dd}");
+
+                    // Берем данные из БД или 0, если нет
+                    if (dateDataDict.TryGetValue(dateKey, out var count))
+                    {
+                        messagesData.Add(count);
+                    }
+                    else
+                    {
+                        messagesData.Add(0);
+                    }
+
+                    _logger.LogInformation($"День недели: {dayName} {currentDate:dd} = {messagesData.Last()}");
                 }
 
                 result["labels"] = labels;
                 result["messagesData"] = messagesData;
+
+                _logger.LogInformation($"📊 Текущая неделя: {string.Join(" → ", labels)}");
 
                 return result;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting weekly messages from DB");
+                result["labels"] = new List<string>();
+                result["messagesData"] = new List<int>();
                 return result;
             }
         }
+
+        [HttpGet("users")]
+        public IActionResult GetUsers()
+        {
+            try
+            {
+                // Получаем всех пользователей из статистики
+                var userIds = _statsService.GetAllUserIds();
+
+                return Ok(new
+                {
+                    success = true,
+                    userIds = userIds,
+                    count = userIds.Count
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка получения списка пользователей");
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
     }
-}
+    }

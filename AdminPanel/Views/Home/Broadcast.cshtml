@@ -1,4 +1,3 @@
-
 @{
     ViewData["Title"] = "Рассылка";
 }
@@ -33,8 +32,9 @@
 
         <!-- статус отправки -->
         <div id="statusMessage" class="alert d-none"></div>
-        
-        <button onclick="sendBroadcast()" class="btn btn-warning btn-lg">
+
+        <!-- ИЗМЕНИЛ: добавил id и убрал onclick -->
+        <button id="sendBroadcastBtn" class="btn btn-warning btn-lg">
             📢 Отправить рассылку
         </button>
     </div>
@@ -42,54 +42,82 @@
 
 @section Scripts {
     <script>
+        // Ждем загрузки DOM
+        document.addEventListener('DOMContentLoaded', function() {
+            // Находим кнопку по ID и добавляем обработчик
+            const sendButton = document.getElementById('sendBroadcastBtn');
+            if (sendButton) {
+                sendButton.addEventListener('click', sendBroadcast);
+            }
+        });
+
         async function sendBroadcast() {
+            console.log('Функция sendBroadcast вызвана'); // для отладки
+
             const message = document.getElementById('broadcastMessage').value;
             if (!message) {
-                alert('Пожалуйста, введите сообщение');
-                return;
-            }
-            
-            // смотрим получателей
-            const recipientType = document.querySelector('input[name="recipients"]:checked').value;
-            
-            if (!confirm('Вы уверены что хотите отправить рассылку?')) {
+                showMessage('Пожалуйста, введите сообщение', 'error');
                 return;
             }
 
-            // статус
+            const recipientType = document.querySelector('input[name="recipients"]:checked').value;
+
+            if (!confirm(`Отправить рассылку всем пользователям?`)) {
+                return;
+            }
+
             const statusEl = document.getElementById('statusMessage');
             statusEl.className = 'alert alert-info';
-            statusEl.innerHTML = '🔄 Отправка рассылки...';
+            statusEl.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div> Отправка рассылки...';
             statusEl.classList.remove('d-none');
 
             try {
-                // использ. существующий метод из ApiController
-                const response = await fetch('/api/Api/broadcast', {
+                console.log('Отправляем запрос на /api/Broadcast');
+                // ИСПРАВИЛ: используем /api/Broadcast вместо /api/Api/broadcast
+                const response = await fetch('/api/Broadcast', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         message: message,
                         recipientType: recipientType
                     })
                 });
 
+                console.log('Получен ответ:', response.status);
                 const result = await response.json();
-                
+                console.log('Результат:', result);
+
                 if (result.success) {
                     statusEl.className = 'alert alert-success';
-                    statusEl.innerHTML = '✅ Рассылка отправлена успешно!';
+                    statusEl.innerHTML = `
+                        ✅ ${result.message}<br>
+                        <small>Всего: ${result.total || 0}, Успешно: ${result.successCount || 0}, Ошибок: ${result.failCount || 0}</small>
+                    `;
                     document.getElementById('broadcastMessage').value = '';
                 } else {
                     statusEl.className = 'alert alert-danger';
-                    statusEl.innerHTML = '❌ Ошибка: ' + result.message;
+                    statusEl.innerHTML = `❌ ${result.message}`;
                 }
             } catch (error) {
                 console.error('Ошибка:', error);
                 statusEl.className = 'alert alert-danger';
-                statusEl.innerHTML = '❌ Ошибка отправки рассылки: ' + error.message;
+                statusEl.innerHTML = `❌ Ошибка отправки: ${error.message}`;
             }
+        }
+
+        function showMessage(text, type = 'info') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+            alert.style.zIndex = '9999';
+            alert.innerHTML = `
+                ${text}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alert);
+
+            setTimeout(() => {
+                if (alert.parentNode) alert.remove();
+            }, 5000);
         }
     </script>
 }

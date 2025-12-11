@@ -21,6 +21,8 @@ namespace VKBot_nordciti.Services
         Task<Dictionary<string, int>> LoadCommandsFromDatabaseAsync();
 
         Task<Dictionary<string, object>> GetWeeklyMessagesStatsAsync();
+
+        List<long> GetAllUserIds();
     }
 
     // КЛАССЫ ВЫНОСИМ СЮДА, ВНЕ КЛАССА BotStatsService
@@ -63,6 +65,11 @@ namespace VKBot_nordciti.Services
         private DateTime _startTime = DateTime.Now;
         private int _totalMessages = 0;
         private int _totalCommands = 0;
+
+        public List<long> GetAllUserIds()
+        {
+            return _userStats.Keys.ToList();
+        }
 
         public BotStatsService(IConfiguration configuration, ILogger<BotStatsService> logger)
         {
