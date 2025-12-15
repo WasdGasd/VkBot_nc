@@ -274,7 +274,7 @@ namespace VKBot_nordciti.Services
             }
             else
             {
-                normalizedCommand = "сообщение";
+              
             }
 
             Console.WriteLine($"📊 Final command: '{normalizedCommand}'");
